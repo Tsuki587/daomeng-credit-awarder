@@ -3,10 +3,14 @@
 
 # 白名单：只追踪以下内容
 !.gitignore
+!.gitattributes
 !DM.py
 !README-Linux.md
+!README.en.md
+!install-windows.cmd
 !install-linux.sh
 !requirements.txt
+!run-windows.cmd
 !run-linux.sh
 !daomeng/
 !daomeng/**
