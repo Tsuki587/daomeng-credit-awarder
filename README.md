@@ -109,22 +109,4 @@ bash run-linux.sh -r "/absolute/path/daomeng/活动名-时间"
 
 仅状态为“未处理”的学生会自动继续。搜索两次仍无法确认的学生标记“待核对”，不会点颁发；“待核对”和“状态未知”不要直接重发，先在 App 核对。**点击“确定”后发生异常的自动重试逻辑目前未修改，仍有重复颁发风险**；遇到此情形应立即人工核对。App 的实际发分记录是最终依据。
 
-使用 `-u` 账号表时，任务目录的 `config.json` 可能保存明文账号密码。结果目录、Excel、日志、账号表及虚拟环境均不要上传到 GitHub。
-
-## 5. 发布到 GitHub
-
-本目录已经是 Git 仓库，目前 `origin` 指向 `https://github.com/tangent2pi/daomeng`。**不要在不确认仓库归属和权限时直接推送。**先运行：
-
-```bash
-git status --short --branch
-git remote -v
-git ls-files
-```
-
-确认跟踪列表中没有学号名单、结果目录、密码或其他个人资料，并决定是否有权公开这些源码、采用什么许可证。当前仓库没有 `LICENSE`，不要自行假定别人可如何使用；若是别人的项目，优先在 GitHub 上 Fork 并保留来源。
-
-- 如果你有 `tangent2pi/daomeng` 的写入权限，确认本地提交后执行 `git push origin main`。
-- 如果没有，先在 GitHub Fork 原仓库，再把自己的 Fork 地址加为新远端，例如 `git remote add myfork https://github.com/你的用户名/daomeng.git`，执行 `git push -u myfork main`。不要把示例用户名原样复制。
-- 推送后打开仓库页面，确认中英文说明、脚本和源码可见，且没有名单或账号文件。若要标版本，在仓库的 **Releases → Draft a new release** 创建 tag 并发布；GitHub 会提供该版本源码压缩包。这里提供的是源码安装方式，**不是** Windows `.exe` 或 macOS `.app`。
-
-操作界面以 [GitHub 创建仓库文档](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository)、[推送本地代码文档](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github) 和 [发布 Release 文档](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) 为准。
+使用 `-u` 账号表时，任务目录的 `config.json` 可能保存明文账号密码。结果目录、Excel、日志和账号表含有敏感信息，不要公开分享。

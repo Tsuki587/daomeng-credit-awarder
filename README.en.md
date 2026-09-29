@@ -109,22 +109,4 @@ bash run-linux.sh -r "/absolute/path/daomeng/activity-time"
 
 Only records marked `未处理` (unprocessed) resume automatically. If two searches cannot confirm a student, the tool marks `待核对` (needs review) and does not click Award. Do not blindly re-award `待核对` or `状态未知` (unknown status); check the app first. **The existing retry-on-exception behavior after clicking Confirm has not been changed and can still risk a duplicate award.** Check the app immediately if that happens. The app's actual credit record is authoritative.
 
-If you use an account workbook with `-u`, `config.json` in the task directory may contain credentials in plain text. Never upload output directories, Excel lists, logs, account files, or `.venv` to GitHub.
-
-## 5. Publish on GitHub
-
-This directory is already a Git repository. Its current `origin` points to `https://github.com/tangent2pi/daomeng`. **Do not push before confirming the repository owner and your permissions.** First inspect:
-
-```bash
-git status --short --branch
-git remote -v
-git ls-files
-```
-
-Check that no student lists, results, passwords, or other personal data are tracked. Decide whether you have the right to publish the source and which license, if any, to use. There is currently no `LICENSE` file; do not assume that a license has been granted. If this is someone else's project, prefer a GitHub Fork and keep attribution.
-
-- If you can write to `tangent2pi/daomeng`, push your local commits with `git push origin main`.
-- Otherwise, Fork the original repository on GitHub, add your Fork as a separate remote, for example `git remote add myfork https://github.com/YOUR-USERNAME/daomeng.git`, then run `git push -u myfork main`. Replace the placeholder username.
-- Open the repository page after pushing. Confirm that the Chinese and English guides, launchers, and code appear, and that no private files appear. To publish a version, open **Releases → Draft a new release**, create a tag, and publish it. GitHub provides a source archive for that version. This project currently offers **source-based installation, not** Windows `.exe` or macOS `.app` binaries.
-
-See GitHub's official documentation for [creating repositories](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-new-repository), [pushing local code](https://docs.github.com/en/migrations/importing-source-code/using-the-command-line-to-import-source-code/adding-locally-hosted-code-to-github), and [creating releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository).
+If you use an account workbook with `-u`, `config.json` in the task directory may contain credentials in plain text. Output directories, Excel lists, logs, and account files contain sensitive information; do not share them publicly.
