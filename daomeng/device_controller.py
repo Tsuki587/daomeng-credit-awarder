@@ -499,16 +499,23 @@ class DeviceController:
         row = d(**SELECTORS["人员信息"], text=student.name)
 
         for attempt in range(2):
+            old_row = row.exists
             self._logger.debug(f"搜索学生: {student.student_id}，第 {attempt + 1} 次")
             d(**SELECTORS["人员搜索框"]).set_text(student.student_id)
             d.press("enter")
             d.hide_keyboard()
 
+            # 旧列表首行恰好同名时，须先看到它消失，才能把新出现的同名行当作本次结果。
+            if old_row and not row.wait(exists=False):
+                continue
             if row.wait():
                 d(**SELECTORS["加载"]).wait_gone()
                 return row
 
-        if d(**SELECTORS["无结果"]).exists:
+        if row.exists:
+            self._logger.warning(f"两次搜索后同名旧结果未消失: {student.name} ({student.student_id})")
+            student.status = "待核对（搜索结果未确认）"
+        elif d(**SELECTORS["无结果"]).exists:
             self._logger.warning(f"两次搜索仍未找到学生: {student.name} ({student.student_id})")
             student.status = "待核对（两次搜索无结果）"
         elif d(**SELECTORS["人员信息"]).exists:

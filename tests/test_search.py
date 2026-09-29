@@ -19,6 +19,7 @@ class SearchStudentTests(unittest.TestCase):
         self.controller = DeviceController.__new__(DeviceController)
         self.controller.device = self.device
         self.controller._logger = Mock()
+        self.row.exists = False
 
     def select(self, **selector):
         if selector == SELECTORS["人员搜索框"]:
@@ -55,6 +56,27 @@ class SearchStudentTests(unittest.TestCase):
         self.assertEqual(self.search.set_text.call_count, 2)
         self.assertEqual(self.device.press.call_count, 2)
         self.other.get_text.assert_not_called()
+
+    def test_old_same_name_must_disappear_before_accepting_result(self):
+        self.row.exists = True
+        self.row.wait.side_effect = [True, True]
+
+        result = self.controller._search_student(self.student)
+
+        self.assertIs(result, self.row)
+        self.row.wait.assert_any_call(exists=False)
+        self.row.wait.assert_any_call()
+
+    def test_old_same_name_that_never_disappears_needs_review(self):
+        self.row.exists = True
+        self.row.wait.return_value = False
+
+        result = self.controller._search_student(self.student)
+
+        self.assertIsNone(result)
+        self.assertEqual(self.student.status, "待核对（搜索结果未确认）")
+        self.assertEqual(self.search.set_text.call_count, 2)
+        self.assertEqual(self.row.wait.call_count, 2)
 
     def test_two_empty_searches_need_review(self):
         self.row.wait.return_value = False
