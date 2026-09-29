@@ -452,22 +452,11 @@ class DeviceController:
                         d(**SELECTORS["加载"]).wait_gone()
                     else:
                         self._logger.warning("未找到“已获得其他学分”tab，继续原流程")
-                self._logger.debug(f"搜索学生: {student.student_id}")
-                d(**SELECTORS["人员搜索框"]).set_text(student.student_id)
-                d.press("enter")
-                d(**SELECTORS["加载"]).wait_gone()
-                d.hide_keyboard()
-                if d(**SELECTORS["无结果"]).exists:
-                    self._logger.warning(f"未找到学生: {student.name} ({student.student_id})")
-                    student.status = "未找到（已报名，可能已发分或未签到）"
-                    return student
-                actual_name = d(**SELECTORS["人员信息"]).get_text()
-                if actual_name != student.name:
-                    self._logger.warning(f"学生 {student.student_id} 姓名不符，应为 {student.name}，实际为 {actual_name}")
-                    student.status = f"姓名不符，应为{student.name}，实际为{actual_name}"
+                row = self._search_student(student)
+                if row is None:
                     return student
                 self._logger.debug(f"找到学生: {student.name} ({student.student_id})，开始颁发")
-                d(**SELECTORS["人员信息"]).click()
+                row.click()
                 d(**SELECTORS["颁发1人"]).click()
                 d(**SELECTORS["确定"]).click()
                 d(**SELECTORS["发分加载"]).wait_gone()
@@ -504,6 +493,35 @@ class DeviceController:
                 else:
                     self._logger.info(f"为 {student.student_id} 颁发学分时发生异常: {exc}，自动重试")
                 c += 1
+
+    def _search_student(self, student: Student):
+        d = self.device
+        row = d(**SELECTORS["人员信息"], text=student.name)
+
+        for attempt in range(2):
+            self._logger.debug(f"搜索学生: {student.student_id}，第 {attempt + 1} 次")
+            d(**SELECTORS["人员搜索框"]).set_text(student.student_id)
+            d.press("enter")
+            d.hide_keyboard()
+
+            if row.wait():
+                d(**SELECTORS["加载"]).wait_gone()
+                return row
+
+        if d(**SELECTORS["无结果"]).exists:
+            self._logger.warning(f"两次搜索仍未找到学生: {student.name} ({student.student_id})")
+            student.status = "待核对（两次搜索无结果）"
+        elif d(**SELECTORS["人员信息"]).exists:
+            name = d(**SELECTORS["人员信息"]).get_text()
+            self._logger.warning(
+                f"两次搜索姓名不符: {student.student_id}，应为 {student.name}，实际为 {name}"
+            )
+            student.status = f"待核对（姓名不符，应为{student.name}，实际为{name}）"
+        else:
+            self._logger.warning(f"两次搜索后结果未确认: {student.name} ({student.student_id})")
+            student.status = "待核对（搜索结果未确认）"
+
+        return None
             
     def cleanup(self) -> None:
         if not self.device:

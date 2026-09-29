@@ -10,11 +10,14 @@
 !run-linux.sh
 !daomeng/
 !daomeng/**
+!tests/
+!tests/**
 !.github/
 !.github/**
 
 # 仍然忽略 daomeng 下的缓存
 daomeng/__pycache__/
+tests/__pycache__/
 daomeng/platform-tools/
 daomeng/scrcpy-win64-v3.3.3/
 
