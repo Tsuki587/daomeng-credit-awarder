@@ -242,6 +242,8 @@ class FileManager:
             elif "学号" not in df.columns:
                 self._logger.error(f"文件 {file_dir} 缺少学号列且未启用易班映射")
                 raise ValueError(f"文件 {file_dir} 缺少学号列且未启用易班映射")
+
+            df["学号"] = df["学号"].str.removeprefix("`")
             
             # 确保返回的DataFrame包含所需列
             required = ["学号", "姓名", "院系", "专业", "班级"]

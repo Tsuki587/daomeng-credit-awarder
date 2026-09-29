@@ -128,6 +128,11 @@ class DeviceController:
         if self._config.pair:
             self._logger.info("检测到配对参数，尝试进行无线调试配对")
             self._pair_device()
+        if self._config.device:
+            subprocess.run(
+                [os.environ["ADBUTILS_ADB_PATH"], "connect", self._config.device],
+                check=True,
+            )
         if self._config.init_device:
             self._logger.info("检测到初始化参数，尝试初始化 uiautomator2")
             self._init_uiautomator()
@@ -183,7 +188,7 @@ class DeviceController:
         self._logger.info("开始初始化 uiautomator2")
         command = [sys.executable, "-m", "uiautomator2", "init"]
         if self._config.device:
-            command.extend(["--device", self._config.device])
+            command.extend(["--serial", self._config.device])
             self._logger.debug(f"指定设备: {self._config.device}")
         try:
             result = subprocess.run(

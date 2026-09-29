@@ -1,0 +1,4 @@
+pandas>=2.2,<4
+openpyxl>=3.1,<4
+rich>=13,<16
+uiautomator2>=3.2,<4

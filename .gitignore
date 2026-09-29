@@ -4,6 +4,10 @@
 # 白名单：只追踪以下内容
 !.gitignore
 !DM.py
+!README-Linux.md
+!install-linux.sh
+!requirements.txt
+!run-linux.sh
 !daomeng/
 !daomeng/**
 !.github/

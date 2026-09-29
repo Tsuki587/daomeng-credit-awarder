@@ -2,6 +2,7 @@ import argparse
 import time
 import json
 import os
+import shutil
 import sys
 from pandas import read_excel, notna
 from dataclasses import dataclass
@@ -62,7 +63,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="到梦空间自动化脚本",
     )
     parser.add_argument("-d", help="无线调试 IP:端口，不传入则尝试有线连接。", metavar='IP:PORT')
-    parser.add_argument("-p", help="无线调试配对 IP:端口 配对码。", metavar='IP:PORT CODE', nargs=2)
+    parser.add_argument("-p", help="无线调试配对 IP:端口 配对码。", metavar=("IP:PORT", "CODE"), nargs=2)
     parser.add_argument("-a", help="额外添加名单。", type=Path, metavar='PATH')
     parser.add_argument(
         "-cl",
@@ -285,15 +286,10 @@ def run_cli(argv: Optional[list[str]] = None) -> int:
     logger.info("配置信息已保存到 config.json")
     logger.debug(f"当前配置: {config}")
 
-    # ADB 路径在 daomeng/platform-tools/ 目录下
-    # 使用 __file__ 获取 cli.py 的位置，然后定位到 platform-tools
-    cli_dir = Path(__file__).resolve().parent
-    adb_path = str((cli_dir / "platform-tools" / "adb.exe").resolve())
-    
-    # 验证 ADB 文件是否存在
-    if not Path(adb_path).exists():
-        logger.error(f"ADB 文件不存在: {adb_path}")
-        raise FileNotFoundError(f"找不到 ADB 文件: {adb_path}")
+    # 优先使用用户指定的路径，否则查找系统安装的命令
+    adb_path = os.environ.get("ADBUTILS_ADB_PATH") or shutil.which("adb")
+    if not adb_path or not Path(adb_path).is_file():
+        raise FileNotFoundError("找不到 adb；请安装 Android platform-tools 并确认 adb 在 PATH 中。")
     
     os.environ['ADBUTILS_ADB_PATH'] = adb_path
     logger.info(f"配置 ADB 路径: {adb_path}")
