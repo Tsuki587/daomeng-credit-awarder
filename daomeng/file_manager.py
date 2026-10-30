@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.prompt import Prompt
 
 from .config import AutomationConfig, Student, progress_
+from .excel_io import read_excel
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 
@@ -196,7 +197,7 @@ class FileManager:
         try:
             # 首先读取所有可能的列
             all_cols = ["学号", "姓名", "院系", "专业", "班级", "易班ID"]
-            df = pd.read_excel(file_dir, engine="openpyxl", dtype=str, usecols=lambda col: col in all_cols)
+            df = read_excel(file_dir, dtype=str, usecols=lambda col: col in all_cols)
             
             # 检查姓名列是否存在（必需）
             if "姓名" not in df.columns:
@@ -281,7 +282,7 @@ class FileManager:
             return None
         self._logger.debug(f"开始读取附加名单文件: {self._config.additional_list}")
         try:
-            df = pd.read_excel(self._config.additional_list, engine="openpyxl", dtype=str, usecols=lambda col: col in {"学号", "姓名", "分值"})
+            df = read_excel(self._config.additional_list, dtype=str, usecols=lambda col: col in {"学号", "姓名", "分值"})
             if not {"学号", "姓名", "分值"}.issubset(df.columns):
                 self._logger.error(f"附加名单文件 {self._config.additional_list} 缺少必要列")
                 raise ValueError(f"附加名单文件 {self._config.additional_list} 缺少必要列，必须包含: 学号, 姓名, 分值")

@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 import sys
-from pandas import read_excel, notna
+from pandas import notna
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -12,6 +12,7 @@ from rich import print
 
 from .automation_app import AutomationApp
 from .config import AutomationConfig
+from .excel_io import read_excel
 from .logging_utils import get_logger
 
 
@@ -188,7 +189,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         if not accounts_path.exists():
             raise FileNotFoundError(f"指定的账号信息文件不存在: {accounts_path}")
         try:
-            accounts_df = read_excel(accounts_path, usecols=["账号", "密码"], dtype=str, engine="openpyxl")
+            accounts_df = read_excel(accounts_path, usecols=["账号", "密码"], dtype=str)
             accounts = {row["账号"]: row["密码"] for _, row in accounts_df.iterrows() if notna(row["账号"]) and notna(row["密码"])}
         except Exception as e:
             raise ValueError(f"读取账号信息文件失败: {e}")
@@ -234,7 +235,6 @@ def run_cli(argv: Optional[list[str]] = None) -> int:
         usecols=["活动名称"],
         nrows=2,
         dtype=str,
-        engine="openpyxl",
     ).iloc[1, 0])
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
