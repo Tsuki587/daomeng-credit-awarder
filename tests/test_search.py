@@ -18,6 +18,7 @@ class SearchStudentTests(unittest.TestCase):
         self.other = Mock()
         self.device = Mock()
         self.device.side_effect = self.select
+        self.device.shell.return_value.output = ""  # 输入法已收起
         self.controller = DeviceController.__new__(DeviceController)
         self.controller.device = self.device
         self.controller._logger = Mock()

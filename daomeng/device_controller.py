@@ -457,7 +457,10 @@ class DeviceController:
                     return student
                 self._logger.debug(f"找到学生: {student.name} ({student.student_id})，开始颁发")
                 row.click()
-                d(**SELECTORS["颁发1人"]).click()
+                btn = d(**SELECTORS["颁发1人"])
+                btn.wait()
+                self._hide_keyboard()
+                btn.click()
                 d(**SELECTORS["确定"]).click()
                 d(**SELECTORS["发分加载"]).wait_gone()
                 d(**SELECTORS["加载"]).wait_gone()
@@ -494,6 +497,15 @@ class DeviceController:
                     self._logger.info(f"为 {student.student_id} 颁发学分时发生异常: {exc}，自动重试")
                 c += 1
 
+    def _hide_keyboard(self) -> None:
+        # 键盘展开时会盖住底部的「颁发1人」，点下去落到键盘的 Search 键上，弹窗永远不出现
+        d = self.device
+        d.hide_keyboard()
+        for _ in range(10):
+            if "mInputShown=true" not in d.shell("dumpsys input_method").output:
+                return
+            sleep(0.1)
+
     def _search_student(self, student: Student):
         d = self.device
         row = d(**SELECTORS["人员信息"], text=student.name)
@@ -504,7 +516,7 @@ class DeviceController:
             self._logger.debug(f"搜索学生: {student.student_id}，第 {attempt + 1} 次")
             d(**SELECTORS["人员搜索框"]).set_text(student.student_id)
             d.press("enter")
-            d.hide_keyboard()
+            self._hide_keyboard()
 
             if not rest.wait(exists=False):
                 continue
