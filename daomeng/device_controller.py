@@ -520,6 +520,9 @@ class DeviceController:
 
             if not rest.wait(exists=False):
                 continue
+            # 搜不到时界面会直接显示“这里暂无数据”，不必再空等整行的 15 秒超时
+            if d(**SELECTORS["无结果"]).wait(exists=True, timeout=2):
+                continue
             if row.wait():
                 d(**SELECTORS["加载"]).wait_gone()
                 return row

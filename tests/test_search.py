@@ -15,6 +15,7 @@ class SearchStudentTests(unittest.TestCase):
         self.rest.wait.return_value = True
         self.loading = Mock()
         self.empty = Mock()
+        self.empty.wait.return_value = False
         self.other = Mock()
         self.device = Mock()
         self.device.side_effect = self.select
@@ -86,12 +87,15 @@ class SearchStudentTests(unittest.TestCase):
 
     def test_two_empty_searches_need_review(self):
         self.row.wait.return_value = False
+        self.empty.wait.return_value = True
         self.empty.exists = True
 
         result = self.controller._search_student(self.student)
 
         self.assertIsNone(result)
         self.assertEqual(self.student.status, "待核对（两次搜索无结果）")
+        self.row.wait.assert_not_called()
+        self.assertEqual(self.search.set_text.call_count, 2)
 
     def test_two_mismatches_need_review(self):
         self.row.wait.return_value = False
