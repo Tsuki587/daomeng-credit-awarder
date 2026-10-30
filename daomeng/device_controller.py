@@ -497,23 +497,23 @@ class DeviceController:
     def _search_student(self, student: Student):
         d = self.device
         row = d(**SELECTORS["人员信息"], text=student.name)
+        # 按学号搜索后列表只剩目标一人，第二行消失才说明结果是本次搜索的
+        rest = d(**{**SELECTORS["人员信息"], "index": "1"})
 
         for attempt in range(2):
-            old_row = row.exists
             self._logger.debug(f"搜索学生: {student.student_id}，第 {attempt + 1} 次")
             d(**SELECTORS["人员搜索框"]).set_text(student.student_id)
             d.press("enter")
             d.hide_keyboard()
 
-            # 旧列表首行恰好同名时，须先看到它消失，才能把新出现的同名行当作本次结果。
-            if old_row and not row.wait(exists=False):
+            if not rest.wait(exists=False):
                 continue
             if row.wait():
                 d(**SELECTORS["加载"]).wait_gone()
                 return row
 
         if row.exists:
-            self._logger.warning(f"两次搜索后同名旧结果未消失: {student.name} ({student.student_id})")
+            self._logger.warning(f"两次搜索后列表未过滤到单人: {student.name} ({student.student_id})")
             student.status = "待核对（搜索结果未确认）"
         elif d(**SELECTORS["无结果"]).exists:
             self._logger.warning(f"两次搜索仍未找到学生: {student.name} ({student.student_id})")

@@ -11,6 +11,8 @@ class SearchStudentTests(unittest.TestCase):
         self.student = Student("12345678901", "学生甲", 1.0, "未处理")
         self.search = Mock()
         self.row = Mock()
+        self.rest = Mock()
+        self.rest.wait.return_value = True
         self.loading = Mock()
         self.empty = Mock()
         self.other = Mock()
@@ -26,6 +28,8 @@ class SearchStudentTests(unittest.TestCase):
             return self.search
         if selector == {**SELECTORS["人员信息"], "text": self.student.name}:
             return self.row
+        if selector == {**SELECTORS["人员信息"], "index": "1"}:
+            return self.rest
         if selector == SELECTORS["加载"]:
             return self.loading
         if selector == SELECTORS["无结果"]:
@@ -57,26 +61,27 @@ class SearchStudentTests(unittest.TestCase):
         self.assertEqual(self.device.press.call_count, 2)
         self.other.get_text.assert_not_called()
 
-    def test_old_same_name_must_disappear_before_accepting_result(self):
-        self.row.exists = True
-        self.row.wait.side_effect = [True, True]
+    def test_result_accepted_only_after_list_filters_to_one(self):
+        self.row.wait.return_value = True
+        self.rest.wait.side_effect = [False, True]
 
         result = self.controller._search_student(self.student)
 
         self.assertIs(result, self.row)
-        self.row.wait.assert_any_call(exists=False)
-        self.row.wait.assert_any_call()
+        self.assertEqual(self.search.set_text.call_count, 2)
+        self.assertEqual(self.device.press.call_count, 2)
 
-    def test_old_same_name_that_never_disappears_needs_review(self):
+    def test_list_that_never_filters_needs_review(self):
         self.row.exists = True
-        self.row.wait.return_value = False
+        self.row.wait.return_value = True
+        self.rest.wait.return_value = False
 
         result = self.controller._search_student(self.student)
 
         self.assertIsNone(result)
         self.assertEqual(self.student.status, "待核对（搜索结果未确认）")
         self.assertEqual(self.search.set_text.call_count, 2)
-        self.assertEqual(self.row.wait.call_count, 2)
+        self.assertEqual(self.rest.wait.call_count, 2)
 
     def test_two_empty_searches_need_review(self):
         self.row.wait.return_value = False
