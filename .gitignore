@@ -8,6 +8,9 @@
 !DM-gui.py
 !requirements-gui.txt
 !build-windows.cmd
+!install-desktop.sh
+!assets/
+!assets/**
 !README-Linux.md
 !README.en.md
 !install-windows.cmd
@@ -22,9 +25,9 @@
 !.github/
 !.github/**
 
-# 仍然忽略 daomeng 下的缓存
-daomeng/__pycache__/
-tests/__pycache__/
+# 仍然忽略缓存和平台相关目录
+__pycache__/
+*.pyc
 daomeng/platform-tools/
 daomeng/scrcpy-win64-v3.3.3/
 

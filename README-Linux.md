@@ -38,6 +38,14 @@ chmod +x install-linux.sh run-linux.sh
 
 手机上需要人工处理时（掉登录、需要重连、多次返回仍未到达目标页），窗口会弹窗等你操作完再继续。
 
+装好以后可以把图标放到桌面和应用列表，点一下就打开：
+
+```bash
+./install-desktop.sh
+```
+
+之后不用记命令，直接点桌面上的「到梦空间批量发分」。仓库换了位置就重跑一次这个脚本。
+
 在 Windows 上打包成 exe 执行 `build-windows.cmd`，产物在 `dist\daomeng-gui\`，整个目录拷到目标电脑即可运行。
 
 ## 准备名单和手机

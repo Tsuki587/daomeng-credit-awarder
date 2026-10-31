@@ -15,6 +15,8 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("到梦空间批量发分")
+    # 和 .desktop 文件对上，任务栏才认这个图标
+    app.setDesktopFileName("daomeng")
     window = MainWindow(Path(sys.argv[0]).resolve().parent)
     window.show()
     return app.exec()
