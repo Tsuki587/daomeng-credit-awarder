@@ -4,6 +4,7 @@ import logging
 from .config import AutomationConfig, Student
 from .device_controller import DeviceController
 from .file_manager import FileManager
+from .task import compare_resume
 
 
 class BatchHooks:
@@ -99,6 +100,8 @@ def run_session(config: AutomationConfig, logger: logging.Logger, hooks: BatchHo
             hooks.on_prepare(controller, file_manager)
             if file_manager.check_database_initialized():
                 logger.info("检测到已有学生数据库，跳过Excel读取步骤")
+                for problem in compare_resume(config.output_dir, config.file_dir):
+                    logger.warning(f"名单和进度对不上：{problem}")
             else:
                 logger.info("开始读取Excel文件并生成学生数据库")
                 file_manager.save_students_to_db()
