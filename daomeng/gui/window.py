@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDoubleSpinBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
@@ -25,6 +26,9 @@ from PySide6.QtWidgets import (
 )
 
 from .worker import GuiWorker, JobSpec
+
+ROW_INDENT = 175  # 左边标签列宽
+ROW_TAIL = 160  # 没有分值控件的行，右侧留白与发分名单行对齐
 
 
 class MainWindow(QMainWindow):
@@ -78,17 +82,33 @@ class MainWindow(QMainWindow):
 
     def _build_new_page(self) -> QWidget:
         page = QWidget()
-        grid = QGridLayout(page)
-        grid.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        self.entry_zero = self._add_file_row(grid, 0, "录取名单（0 分）")
-        self.entry_first = self._add_file_row(grid, 1, "1 分名单")
-        self.entry_second = self._add_file_row(grid, 2, "2 分名单")
-        self.entry_extra = self._add_file_row(grid, 3, "额外名单（可选）")
-        self.entry_yiban = self._add_file_row(grid, 4, "易班映射表（可选）")
+        self.entry_zero = self._add_file_row(layout, "录取名单（不发放）")
+
+        # 发分名单的份数和分值都可以改，不写死 1 分、2 分
+        self.score_rows: list[tuple[QWidget, QLineEdit, QDoubleSpinBox]] = []
+        self.score_rows_layout = QVBoxLayout()
+        self.score_rows_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self.score_rows_layout)
+        self._add_score_row("", 1.0)
+        self._add_score_row("", 2.0)
+
+        add = QPushButton("再加一份发分名单")
+        add.clicked.connect(lambda: self._add_score_row("", 1.0))
+        add_row = QHBoxLayout()
+        add_row.addSpacing(ROW_INDENT)
+        add_row.addWidget(add)
+        add_row.addStretch()
+        layout.addLayout(add_row)
+
+        self.entry_extra = self._add_file_row(layout, "额外名单（可选，自带分值列）")
+        self.entry_yiban = self._add_file_row(layout, "易班映射表（可选）")
 
         self.check_tab = QCheckBox("搜索前先切到「已获得其他学分」")
-        grid.addWidget(self.check_tab, 5, 1, 1, 2)
+        self.check_tab.setContentsMargins(ROW_INDENT, 0, 0, 0)
+        layout.addWidget(self.check_tab)
         return page
 
     def _build_resume_page(self) -> QWidget:
@@ -159,14 +179,57 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(1, 1)
         return box
 
-    def _add_file_row(self, grid: QGridLayout, row: int, title: str) -> QLineEdit:
+    def _add_file_row(self, layout: QVBoxLayout, title: str) -> QLineEdit:
+        row = QHBoxLayout()
+        label = QLabel(title)
+        label.setFixedWidth(ROW_INDENT)
         entry = QLineEdit()
         button = QPushButton("浏览...")
         button.clicked.connect(lambda: self._pick_file(entry))
-        grid.addWidget(QLabel(title), row, 0)
-        grid.addWidget(entry, row, 1)
-        grid.addWidget(button, row, 2)
+        row.addWidget(label)
+        row.addWidget(entry, 1)
+        row.addWidget(button)
+        row.addSpacing(ROW_TAIL)
+        layout.addLayout(row)
         return entry
+
+    def _add_score_row(self, path: str = "", points: float = 1.0) -> None:
+        # 一份表对应一个分值，份数任意
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+
+        label = QLabel("发分名单")
+        label.setFixedWidth(ROW_INDENT)
+        entry = QLineEdit(path)
+        browse = QPushButton("浏览...")
+        browse.clicked.connect(lambda: self._pick_file(entry))
+        spin = QDoubleSpinBox()
+        spin.setDecimals(1)
+        spin.setRange(0.1, 100.0)
+        spin.setSingleStep(0.5)
+        spin.setValue(points)
+        spin.setSuffix(" 分")
+        spin.setFixedWidth(90)
+        remove = QPushButton("删除")
+        remove.setFixedWidth(60)
+        remove.clicked.connect(lambda: self._remove_score_row(container))
+
+        row.addWidget(label)
+        row.addWidget(entry, 1)
+        row.addWidget(browse)
+        row.addWidget(spin)
+        row.addWidget(remove)
+        self.score_rows_layout.addWidget(container)
+        self.score_rows.append((container, entry, spin))
+
+    def _remove_score_row(self, container: QWidget) -> None:
+        for item in self.score_rows:
+            if item[0] is container:
+                self.score_rows.remove(item)
+                break
+        container.setParent(None)
+        container.deleteLater()
 
     # ---- 选择文件 ----
 
@@ -226,15 +289,22 @@ class MainWindow(QMainWindow):
                 click_other_tab=False,
             )
 
-        files: dict[float, Path] = {}
-        for points, entry in ((0.0, self.entry_zero), (1.0, self.entry_first), (2.0, self.entry_second)):
+        roster = self.entry_zero.text().strip()
+        if not roster:
+            raise ValueError("请先选择录取名单")
+        files: dict[float, Path] = {0.0: Path(roster)}
+
+        for _, entry, spin in self.score_rows:
             text = entry.text().strip()
-            if text:
-                files[points] = Path(text)
-        if 0.0 not in files:
-            raise ValueError("请先选择录取名单（0 分）")
-        if len(files) < 2:
-            raise ValueError("再选一份「1 分名单」或「2 分名单」才有分可发")
+            if not text:
+                continue
+            points = round(spin.value(), 1)
+            if points in files:
+                raise ValueError(f"{points:.1f} 分出现了两份名单，请合并成一份，或用「额外名单」单独指定")
+            files[points] = Path(text)
+
+        if len(files) == 1 and not self.entry_extra.text().strip():
+            raise ValueError("至少要选一份发分名单，或用「额外名单」直接写学号和分值")
 
         return JobSpec(
             resume_dir=None,

@@ -89,7 +89,7 @@ cd "/absolute/path/daomeng"
 bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
 ```
 
-For a single score, remove the other `-f "file path" score` pair. Run the platform-specific `-h` command for wireless debugging, device selection, and other options. Follow any login or confirmation prompt on the phone or in the terminal.
+Scores are not limited to whole numbers: `-f "/absolute/path/list.xlsx" 2.5` awards 2.5 credits. Pass one `-f` pair per list; omit a pair to skip that score. Run the platform-specific `-h` command for wireless debugging, device selection, and other options. Follow any login or confirmation prompt on the phone or in the terminal.
 
 ### Optional graphical interface
 
@@ -107,7 +107,7 @@ If you would rather not type the command line, the GUI runs exactly the same awa
 ./.venv/bin/python DM-gui.py
 ```
 
-It can start a new task (pick the roster and award lists, tick initialization on first connect), resume the previous task, show overall progress and a live log, and stop at any time. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
+It can start a new task (pick the roster, add as many award lists as you need and type each list's score, tick initialization on first connect), resume the previous task, show overall progress and a live log, and stop at any time. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
 
 On Windows, `build-windows.cmd` packages a portable folder in `dist\daomeng-gui` (build on Windows; PyInstaller cannot cross-compile). Put `adb.exe` in `vendor\platform-tools\` to bundle it, otherwise the target computer needs its own `platform-tools`.
 

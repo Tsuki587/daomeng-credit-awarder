@@ -89,7 +89,7 @@ cd "/absolute/path/daomeng"
 bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
 ```
 
-只发一种分值时，删去另一组 `-f "文件路径" 分值`。无线调试、指定设备及其他选项见对应系统的 `-h` 输出。手机或终端要求登录、确认时，按提示处理。
+分值不限于整数，`-f "/absolute/path/名单.xlsx" 2.5` 就按 2.5 分发；有几份名单就写几组 `-f`，少写一组就是不发那一种。无线调试、指定设备及其他选项见对应系统的 `-h` 输出。手机或终端要求登录、确认时，按提示处理。
 
 ### 图形界面（可选）
 
@@ -107,7 +107,7 @@ bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1�
 ./.venv/bin/python DM-gui.py
 ```
 
-窗口里可以新建任务（选录取名单和发分名单，首次连接勾“初始化设备”）、继续上次任务、看总进度和实时日志、随时停止；手机上需要人工处理（掉登录、需要重连）时会弹窗提示。Linux 下再执行 `./install-desktop.sh` 可在桌面和应用列表放一个图标，点一下直接打开。
+窗口里可以新建任务（选录取名单，再按需加任意份发分名单并各自填分值，首次连接勾“初始化设备”）、继续上次任务、看总进度和实时日志、随时停止；手机上需要人工处理（掉登录、需要重连）时会弹窗提示。Linux 下再执行 `./install-desktop.sh` 可在桌面和应用列表放一个图标，点一下直接打开。
 
 Windows 上可用 `build-windows.cmd` 打包成免安装目录 `dist\daomeng-gui`（须在 Windows 上打包，PyInstaller 不能跨平台）。把 `adb.exe` 放到 `vendor\platform-tools\` 会一并打进包里，否则目标电脑仍需自备 `platform-tools`。
 
