@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.prompt import Prompt
 
 from .config import AutomationConfig, Student, progress_
-from .excel_io import read_excel
+from .excel_io import clean_columns, read_excel
 
 warnings.filterwarnings("ignore", message="Workbook contains no default style")
 
@@ -231,9 +231,9 @@ class FileManager:
         """
         self._logger.debug(f"开始读取学生名单文件: {file_dir}")
         try:
-            # 首先读取所有可能的列
-            all_cols = ["学号", "姓名", "院系", "专业", "班级", "易班ID"]
-            df = read_excel(file_dir, dtype=str, usecols=lambda col: col in all_cols)
+            # 表头可能带序号（「1、姓名」），统一清洗后再按列名取
+            df = read_excel(file_dir, dtype=str)
+            clean_columns(df)
             
             # 检查姓名列是否存在（必需）
             if "姓名" not in df.columns:
@@ -1141,8 +1141,11 @@ class FileManager:
         }
 
         cursor = self._conn.cursor()
-        rows = cursor.execute("SELECT student_id, points, status FROM students")
-        stored = {str(student_id): (float(points), str(status)) for student_id, points, status in rows}
+        rows = cursor.execute("SELECT student_id, points, status, name FROM students")
+        stored = {
+            str(student_id): (float(points), str(status), str(name))
+            for student_id, points, status, name in rows
+        }
 
         added: List[str] = []
         revived: List[str] = []
@@ -1151,22 +1154,32 @@ class FileManager:
         def _ensure(student_id: str, name: str, points: float) -> None:
             eligible = student_id in roster
             if student_id in stored:
-                saved_points, status = stored[student_id]
+                saved_points, status, saved_name = stored[student_id]
                 if eligible and status.startswith(("未报名", "学号错误", "姓名错误")):
                     cursor.execute(
                         "UPDATE students SET name = ?, status = '未处理', "
                         "updated_at = datetime('now', 'localtime') WHERE student_id = ?",
                         (roster[student_id], student_id),
                     )
-                    stored[student_id] = (saved_points, "未处理")
+                    stored[student_id] = (saved_points, "未处理", roster[student_id])
                     revived.append(f"{student_id} {roster[student_id]}")
-                elif status == "未处理" and not saved_points == points:
-                    cursor.execute(
-                        "UPDATE students SET points = ?, updated_at = datetime('now', 'localtime') "
-                        "WHERE student_id = ?",
-                        (points, student_id),
-                    )
-                    stored[student_id] = (points, status)
+                elif status == "未处理":
+                    # 名单改过的姓名也要跟上，否则按姓名找不到人
+                    if not saved_points == points:
+                        cursor.execute(
+                            "UPDATE students SET points = ?, updated_at = datetime('now', 'localtime') "
+                            "WHERE student_id = ?",
+                            (points, student_id),
+                        )
+                        saved_points = points
+                    if eligible and roster[student_id] != saved_name:
+                        cursor.execute(
+                            "UPDATE students SET name = ?, updated_at = datetime('now', 'localtime') "
+                            "WHERE student_id = ?",
+                            (roster[student_id], student_id),
+                        )
+                        saved_name = roster[student_id]
+                    stored[student_id] = (saved_points, status, saved_name)
                 return
 
             if not eligible:
@@ -1176,7 +1189,7 @@ class FileManager:
                 "INSERT INTO students (student_id, name, points, status) VALUES (?, ?, ?, '未处理')",
                 (student_id, roster[student_id], points),
             )
-            stored[student_id] = (points, "未处理")
+            stored[student_id] = (points, "未处理", roster[student_id])
             added.append(f"{student_id} {roster[student_id]}")
 
         for points, frame in dataframes.items():

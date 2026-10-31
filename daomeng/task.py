@@ -10,13 +10,16 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from .config import AutomationConfig
-from .excel_io import read_excel
+from .excel_io import clean_columns, read_excel
 
 
 def read_activity_name(list_path: Path) -> str:
     """从录取名单里取活动名称，表格第二行第一列。"""
-    frame = read_excel(list_path, usecols=["活动名称"], nrows=2, dtype=str)
-    return str(frame.iloc[1, 0])
+    frame = read_excel(list_path, nrows=2, dtype=str)
+    clean_columns(frame)
+    if "活动名称" not in frame.columns:
+        raise ValueError(f"{list_path.name} 里没有「活动名称」列，没法确定活动")
+    return str(frame["活动名称"].iloc[1])
 
 
 def new_output_dir(base_dir: Path, activity_name: str) -> Path:
@@ -81,7 +84,8 @@ def resolve_adb() -> str:
 
 def _read_ids(path: Path) -> Dict[str, str]:
     """读一份名单的学号与姓名。"""
-    frame = read_excel(path, dtype=str, usecols=lambda col: col in {"学号", "姓名"})
+    frame = read_excel(path, dtype=str)
+    clean_columns(frame)
     if "学号" not in frame.columns:
         raise ValueError(f"{path.name} 里没有「学号」列")
     names = frame["姓名"].tolist() if "姓名" in frame.columns else [""] * len(frame)
