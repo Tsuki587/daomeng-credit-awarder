@@ -4,7 +4,7 @@
 
 本工具在 Windows、macOS 或 Linux 电脑上运行，通过 ADB 操作安卓手机上的“到梦空间”App，按 Excel 名单**逐人**颁发活动学分；它不是到梦空间的批量发分接口，也不是免安装的桌面程序。请仅在你有活动管理权限并完成学生签到或补签后使用。
 
-> 发分会真实修改 App 中的记录。先用测试活动和少量测试名单核对操作；不要用正式名单试运行。当前只有 Linux 环境的自动测试和搜索页观察，Windows、macOS 以及真实颁发流程尚未实机验证。
+> 发分会真实修改 App 中的记录。先用测试活动和少量测试名单核对操作；不要用正式名单试运行。真实颁发流程已在 Linux + 安卓手机上实机跑通；Windows、macOS 只做过自动测试，尚未实机跑过。
 
 ## 1. 准备电脑和手机
 
@@ -91,6 +91,26 @@ bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1�
 
 只发一种分值时，删去另一组 `-f "文件路径" 分值`。无线调试、指定设备及其他选项见对应系统的 `-h` 输出。手机或终端要求登录、确认时，按提示处理。
 
+### 图形界面（可选）
+
+不想记命令行参数时，可以用图形界面；它和命令行走同一套发分流程：
+
+```powershell
+# Windows
+.\venv\Scripts\python.exe -m pip install -r requirements-gui.txt
+.\venv\Scripts\python.exe DM-gui.py
+```
+
+```bash
+# macOS / Linux
+./.venv/bin/python -m pip install -r requirements-gui.txt
+./.venv/bin/python DM-gui.py
+```
+
+窗口里可以新建任务（选录取名单和发分名单，首次连接勾“初始化设备”）、继续上次任务、看总进度和实时日志、随时停止；手机上需要人工处理（掉登录、需要重连）时会弹窗提示。Linux 下再执行 `./install-desktop.sh` 可在桌面和应用列表放一个图标，点一下直接打开。
+
+Windows 上可用 `build-windows.cmd` 打包成免安装目录 `dist\daomeng-gui`（须在 Windows 上打包，PyInstaller 不能跨平台）。把 `adb.exe` 放到 `vendor\platform-tools\` 会一并打进包里，否则目标电脑仍需自备 `platform-tools`。
+
 ## 4. 结果、中断与核对
 
 程序会打印输出目录，位于程序文件夹下，名称为“活动名-时间”。其中有 `automation.log`、进度数据库和 `config.json`；**正常完成后**导出一份以活动名命名、包含所有学生及其状态的 Excel。异常中断时可能尚未导出 Excel，但进度仍可用于恢复。
@@ -106,6 +126,8 @@ bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1�
 # macOS / Linux
 bash run-linux.sh -r "/absolute/path/daomeng/活动名-时间"
 ```
+
+图形界面里选“继续上次任务”并挑同一个输出目录即可。
 
 仅状态为“未处理”的学生会自动继续。搜索两次仍无法确认的学生标记“待核对”，不会点颁发；“待核对”和“状态未知”不要直接重发，先在 App 核对。**点击“确定”后发生异常的自动重试逻辑目前未修改，仍有重复颁发风险**；遇到此情形应立即人工核对。App 的实际发分记录是最终依据。
 

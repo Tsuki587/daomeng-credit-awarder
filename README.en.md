@@ -4,7 +4,7 @@
 
 This source-based tool runs on Windows, macOS, or Linux and uses ADB to operate the Daomeng Space Android app. It awards activity credits **one student at a time** from Excel lists; it does not use a bulk-award API. Use it only with permission to manage the activity, after all intended students have checked in or been checked in retroactively.
 
-> Awarding changes real records in the app. Verify the workflow with a test activity and a small test list, not a production list. Automated tests and search-screen observation have been performed on Linux only. Windows, macOS, and an end-to-end real award have not yet been tested on their respective systems.
+> Awarding changes real records in the app. Verify the workflow with a test activity and a small test list, not a production list. Automated tests and an end-to-end real award have been run on Linux against an Android phone. Windows and macOS remain untested on real hardware.
 
 ## 1. Computer and phone setup
 
@@ -91,6 +91,26 @@ bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1�
 
 For a single score, remove the other `-f "file path" score` pair. Run the platform-specific `-h` command for wireless debugging, device selection, and other options. Follow any login or confirmation prompt on the phone or in the terminal.
 
+### Optional graphical interface
+
+If you would rather not type the command line, the GUI runs exactly the same awarding flow:
+
+```powershell
+# Windows
+.\venv\Scripts\python.exe -m pip install -r requirements-gui.txt
+.\venv\Scripts\python.exe DM-gui.py
+```
+
+```bash
+# macOS / Linux
+./.venv/bin/python -m pip install -r requirements-gui.txt
+./.venv/bin/python DM-gui.py
+```
+
+It can start a new task (pick the roster and award lists, tick initialization on first connect), resume the previous task, show overall progress and a live log, and stop at any time. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
+
+On Windows, `build-windows.cmd` packages a portable folder in `dist\daomeng-gui` (build on Windows; PyInstaller cannot cross-compile). Put `adb.exe` in `vendor\platform-tools\` to bundle it, otherwise the target computer needs its own `platform-tools`.
+
 ## 4. Results, resuming, and verification
 
 The program prints an output directory under the program folder, named after the activity and time. It contains `automation.log`, a progress database, and `config.json`. **After normal completion**, it exports one full Excel workbook named after the activity, with every student's status. An interrupted run may not have exported the workbook yet, but its saved progress can be resumed.
@@ -106,6 +126,8 @@ Resume using **the same output directory**, without `-f`, and keep the original 
 # macOS / Linux
 bash run-linux.sh -r "/absolute/path/daomeng/activity-time"
 ```
+
+In the GUI, choose "Resume previous task" and pick the same output directory.
 
 Only records marked `未处理` (unprocessed) resume automatically. If two searches cannot confirm a student, the tool marks `待核对` (needs review) and does not click Award. Do not blindly re-award `待核对` or `状态未知` (unknown status); check the app first. **The existing retry-on-exception behavior after clicking Confirm has not been changed and can still risk a duplicate award.** Check the app immediately if that happens. The app's actual credit record is authoritative.
 
