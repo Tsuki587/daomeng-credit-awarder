@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..task import load_config, read_activity_name
+from ..task import compare_resume, load_config, read_activity_name
 from .worker import JobSpec, QueueWorker
 
 ROW_INDENT = 175  # 左边标签列宽
@@ -313,6 +313,23 @@ class MainWindow(QMainWindow):
                 f"{run_dir}\n\n目录里没有 students.db，没有进度可以接着跑；请用上面的表单重新建一个任务。",
             )
             return
+
+        try:
+            problems = compare_resume(run_dir, files)
+        except Exception as err:
+            QMessageBox.warning(self, "这个目录不能续跑", f"{run_dir}\n\n{err}")
+            return
+        if problems:
+            detail = "\n".join(problems)
+            answer = QMessageBox.question(
+                self,
+                "名单和进度对不上",
+                f"{run_dir}\n\n{detail}\n\n还是按进度库里的记录续跑吗？表里多出来的人这次不会发。",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        else:
+            self.log.appendPlainText(f"已核对 {run_dir.name}：名单与进度一致")
 
         spec = JobSpec(
             title=f"{title}（续跑）",
