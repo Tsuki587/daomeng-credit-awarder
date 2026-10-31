@@ -15,6 +15,10 @@ from .config import AutomationConfig, Student
 from .selectors import DMKJ_PACKAGE_NAME, SELECTORS
 
 
+class NavigationError(RuntimeError):
+    """导航到不了目标界面，而且重试也没用，比如活动根本不存在。"""
+
+
 class DeviceController:
     """封装设备连接与导航相关操作。"""
 
@@ -350,13 +354,20 @@ class DeviceController:
         self._logger.info(f"开始导航到目标界面: {target}，分值: {score}")
         d = self.device
         back_count = 0
+        not_running = 0
         while self._get_current() != target:
             try:
                 sleep(0.2)
                 current = self._get_current()
                 if current == "N0":
+                    # 手机锁屏、断线时会一直停在这里重启应用，没人看着就永远卡住
+                    not_running += 1
+                    if not_running > 30:
+                        raise RuntimeError("应用反复启动不成功，检查手机是否亮屏解锁、数据线是否还连着")
                     self._logger.info("应用未运行或包名不匹配，重启应用")
                     d.app_start(DMKJ_PACKAGE_NAME, stop=True)
+                else:
+                    not_running = 0
                 if back_count > 25:
                     self._logger.error(f"已返回 {back_count} 次仍未到达目标界面，请求手动干预")
                     self._wait_user("已返回多次仍未到达目标界面，请手动操作到目标页后继续")
@@ -397,7 +408,7 @@ class DeviceController:
                         d(**SELECTORS["加载"]).wait_gone()
                         if d(**SELECTORS["无结果"]).exists:
                             self._logger.error(f"未找到活动: {self._config.activity_name}")
-                            raise RuntimeError(f"未找到活动: {self._config.activity_name}")
+                            raise NavigationError(f"未找到活动: {self._config.activity_name}")
                         if d(**SELECTORS["活动筛选"]).exists and not d(**SELECTORS["活动筛选：已结束"]).exists:
                             d(**SELECTORS["活动筛选"]).click()
                             sleep(0.3)
@@ -428,6 +439,8 @@ class DeviceController:
                         self._logger.debug("未识别的界面，尝试返回 back")
                         d.press("back")
                         back_count += 1
+            except NavigationError:
+                raise
             except Exception as exc:
                 # 使用精确的错误检测方法
                 if self._is_device_connection_error(exc):
@@ -492,6 +505,8 @@ class DeviceController:
                     self._logger.warning(f"颁发状态未知: {student.name} ({student.student_id})，Toast: {toast}")
                     student.status = f"未知(提示:{toast})"
                     return student
+            except NavigationError:
+                raise
             except Exception as exc:
                 # 使用精确的错误检测方法
                 if self._is_device_connection_error(exc):

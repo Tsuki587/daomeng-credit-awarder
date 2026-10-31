@@ -1,10 +1,11 @@
-"""主窗口：选任务、看进度、看日志。"""
+"""主窗口：把要跑的活动排成队列，看进度、看日志。"""
 from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -19,13 +21,14 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QRadioButton,
-    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from .worker import GuiWorker, JobSpec
+from ..task import read_activity_name
+from .worker import JobSpec, QueueWorker
 
 ROW_INDENT = 175  # 左边标签列宽
 ROW_TAIL = 160  # 没有分值控件的行，右侧留白与发分名单行对齐
@@ -65,22 +68,24 @@ class MainWindow(QMainWindow):
     def __init__(self, base_dir: Path) -> None:
         super().__init__()
         self._base = base_dir
-        self._worker: Optional[GuiWorker] = None
+        self._worker: Optional[QueueWorker] = None
         self._out_dir: Optional[Path] = None
         self._dialog: Optional[QMessageBox] = None
+        self.jobs: list[JobSpec] = []
         self.setWindowTitle("到梦空间批量发分")
-        self.resize(900, 760)
+        self.resize(940, 860)
         self._build_ui()
-        self._set_running(False)
+        self._set_state("idle")
 
     # ---- 界面搭建 ----
 
     def _build_ui(self) -> None:
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.addWidget(self._build_task_box())
+        self.task_box = self._build_task_box()
+        layout.addWidget(self.task_box)
+        layout.addWidget(self._build_queue_box())
         layout.addWidget(self._build_device_box())
-        layout.addLayout(self._build_buttons())
         layout.addWidget(self._build_progress_box())
         layout.addWidget(QLabel("运行日志"))
         self.log = QPlainTextEdit()
@@ -90,30 +95,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _build_task_box(self) -> QGroupBox:
-        box = QGroupBox("任务")
+        box = QGroupBox("新建任务")
         layout = QVBoxLayout(box)
-
-        self.mode_new = QRadioButton("新建任务")
-        self.mode_resume = QRadioButton("继续上次任务")
-        self.mode_new.setChecked(True)
-        modes = QHBoxLayout()
-        modes.addWidget(self.mode_new)
-        modes.addWidget(self.mode_resume)
-        modes.addStretch()
-        layout.addLayout(modes)
-
-        self.pages = QStackedWidget()
-        self.pages.addWidget(self._build_new_page())
-        self.pages.addWidget(self._build_resume_page())
-        layout.addWidget(self.pages)
-
-        self.mode_new.toggled.connect(self._on_mode_changed)
-        return box
-
-    def _build_new_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(9, 9, 9, 9)
 
         self.entry_zero = self._add_file_row(layout, "录取名单（不发放）")
 
@@ -123,7 +107,6 @@ class MainWindow(QMainWindow):
         self.score_rows_layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(self.score_rows_layout)
         self._add_score_row("", 1.0)
-        self._add_score_row("", 2.0)
 
         add = QPushButton("再加一份发分名单")
         add.clicked.connect(lambda: self._add_score_row("", 1.0))
@@ -139,25 +122,59 @@ class MainWindow(QMainWindow):
         self.check_tab = QCheckBox("搜索前先切到「已获得其他学分」")
         self.check_tab.setContentsMargins(ROW_INDENT, 0, 0, 0)
         layout.addWidget(self.check_tab)
-        return page
 
-    def _build_resume_page(self) -> QWidget:
-        page = QWidget()
-        grid = QGridLayout(page)
-        grid.setContentsMargins(0, 0, 0, 0)
+        self.btn_add = QPushButton("加入队列")
+        self.btn_add.clicked.connect(self._add_to_queue)
+        bottom = QHBoxLayout()
+        bottom.addSpacing(ROW_INDENT)
+        bottom.addWidget(self.btn_add)
+        bottom.addStretch()
+        layout.addLayout(bottom)
+        return box
 
-        self.entry_resume = QLineEdit()
-        self.entry_resume.setPlaceholderText("上次自动生成的运行目录，里面有 students.db 和 config.json")
-        button = QPushButton("选择目录...")
-        button.clicked.connect(self._pick_resume_dir)
-        grid.addWidget(QLabel("运行目录"), 0, 0)
-        grid.addWidget(self.entry_resume, 0, 1)
-        grid.addWidget(button, 0, 2)
+    def _build_queue_box(self) -> QGroupBox:
+        box = QGroupBox("等候区（按顺序一条一条跑）")
+        layout = QVBoxLayout(box)
 
-        hint = QLabel("表格路径改过、文件被删时，续跑会报「指定的文件路径不存在」。")
-        hint.setWordWrap(True)
-        grid.addWidget(hint, 1, 1, 1, 2)
-        return page
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["活动", "分值", "状态"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setMinimumHeight(120)
+        layout.addWidget(self.table)
+
+        self.btn_remove = QPushButton("删除选中")
+        self.btn_remove.clicked.connect(self._remove_selected)
+        self.btn_clear = QPushButton("清空队列")
+        self.btn_clear.clicked.connect(self._clear_queue)
+        self.btn_start = QPushButton("开始队列")
+        self.btn_start.clicked.connect(self._start_queue)
+        self.btn_stop = QPushButton("停止")
+        self.btn_stop.clicked.connect(self._stop)
+        self.btn_retry = QPushButton("重试这条")
+        self.btn_retry.clicked.connect(lambda: self._decide("retry"))
+        self.btn_skip = QPushButton("跳过这条")
+        self.btn_skip.clicked.connect(lambda: self._decide("skip"))
+        self.btn_open = QPushButton("打开运行目录")
+        self.btn_open.clicked.connect(self._open_output)
+
+        row = QHBoxLayout()
+        row.addWidget(self.btn_start)
+        row.addWidget(self.btn_stop)
+        row.addWidget(self.btn_retry)
+        row.addWidget(self.btn_skip)
+        row.addSpacing(12)
+        row.addWidget(self.btn_remove)
+        row.addWidget(self.btn_clear)
+        row.addWidget(self.btn_open)
+        row.addStretch()
+        layout.addLayout(row)
+        return box
 
     def _build_device_box(self) -> QGroupBox:
         box = QGroupBox("设备")
@@ -171,21 +188,6 @@ class MainWindow(QMainWindow):
         self.check_init = QCheckBox("首次连接，初始化设备（安装 uiautomator2）")
         grid.addWidget(self.check_init, 1, 1)
         return box
-
-    def _build_buttons(self) -> QHBoxLayout:
-        self.btn_start = QPushButton("开始")
-        self.btn_start.clicked.connect(self._start)
-        self.btn_stop = QPushButton("停止")
-        self.btn_stop.clicked.connect(self._stop)
-        self.btn_open = QPushButton("打开运行目录")
-        self.btn_open.clicked.connect(self._open_output)
-
-        row = QHBoxLayout()
-        row.addWidget(self.btn_start)
-        row.addWidget(self.btn_stop)
-        row.addWidget(self.btn_open)
-        row.addStretch()
-        return row
 
     def _build_progress_box(self) -> QGroupBox:
         box = QGroupBox("进度")
@@ -268,58 +270,44 @@ class MainWindow(QMainWindow):
         if path:
             entry.setText(path)
 
-    def _pick_resume_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择运行目录", str(self._base))
-        if path:
-            self.entry_resume.setText(path)
+    # ---- 队列 ----
 
-    def _on_mode_changed(self) -> None:
-        self.pages.setCurrentIndex(0 if self.mode_new.isChecked() else 1)
-
-    # ---- 开始 / 停止 ----
-
-    def _start(self) -> None:
+    def _add_to_queue(self) -> None:
         try:
             spec = self._collect_spec()
-        except ValueError as err:
-            QMessageBox.warning(self, "还不能开始", str(err))
+        except Exception as err:
+            QMessageBox.warning(self, "还不能加入队列", str(err))
             return
+        self.jobs.append(spec)
+        self._append_row(spec)
+        self._set_state("idle")
 
-        self.log.clear()
-        self.bar_total.setValue(0)
-        self.bar_point.setValue(0)
-        self._set_running(True)
-        self.label_state.setText("正在启动...")
+    def _append_row(self, spec: JobSpec) -> None:
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        self.table.setItem(row, 0, QTableWidgetItem(spec.title))
+        self.table.setItem(row, 1, QTableWidgetItem(self._points_text(spec)))
+        self.table.setItem(row, 2, QTableWidgetItem("等待中"))
 
-        self._worker = GuiWorker(spec, self._base)
-        self._worker.log_line.connect(self.log.appendPlainText)
-        self._worker.total_changed.connect(self._on_total)
-        self._worker.point_started.connect(self._on_point)
-        self._worker.student_changed.connect(self._on_student)
-        self._worker.student_done.connect(self._on_done)
-        self._worker.point_done.connect(self._on_point_done)
-        self._worker.need_user.connect(self._on_need_user)
-        self._worker.need_text.connect(self._on_need_text)
-        self._worker.need_choice.connect(self._on_need_choice)
-        self._worker.run_finished.connect(self._on_finished)
-        self._worker.start()
+    @staticmethod
+    def _points_text(spec: JobSpec) -> str:
+        scores = "、".join(f"{points:.1f}" for points in sorted(spec.files) if points > 0)
+        if spec.additional is not None:
+            scores = f"{scores}＋额外" if scores else "额外名单"
+        return scores or "-"
+
+    def _remove_selected(self) -> None:
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        self.table.removeRow(row)
+        del self.jobs[row]
+
+    def _clear_queue(self) -> None:
+        self.table.setRowCount(0)
+        self.jobs.clear()
 
     def _collect_spec(self) -> JobSpec:
-        device = self.entry_device.text().strip() or None
-        if self.mode_resume.isChecked():
-            text = self.entry_resume.text().strip()
-            if not text:
-                raise ValueError("请先选择上次的运行目录")
-            return JobSpec(
-                resume_dir=Path(text),
-                files={},
-                device=device,
-                init_device=False,
-                additional=None,
-                yiban=None,
-                click_other_tab=False,
-            )
-
         roster = self.entry_zero.text().strip()
         if not roster:
             raise ValueError("请先选择录取名单")
@@ -338,19 +326,58 @@ class MainWindow(QMainWindow):
             raise ValueError("至少要选一份发分名单，或用「额外名单」直接写学号和分值")
 
         return JobSpec(
-            resume_dir=None,
+            title=read_activity_name(files[0]),
             files=files,
-            device=device,
+            device=self.entry_device.text().strip() or None,
             init_device=self.check_init.isChecked(),
             additional=Path(self.entry_extra.text().strip()) if self.entry_extra.text().strip() else None,
             yiban=Path(self.entry_yiban.text().strip()) if self.entry_yiban.text().strip() else None,
             click_other_tab=self.check_tab.isChecked(),
         )
 
+    def _start_queue(self) -> None:
+        if not self.jobs:
+            QMessageBox.warning(self, "还没有任务", "先用上面的表单填一个活动，点「加入队列」。")
+            return
+
+        # 设备设置是全局的，开跑前统一套到还没跑过的任务上
+        device = self.entry_device.text().strip() or None
+        init_device = self.check_init.isChecked()
+        for job in self.jobs:
+            if job.run_dir is None:
+                job.device = device
+                job.init_device = init_device
+
+        self.log.clear()
+        self._reset_progress()
+        self._set_state("running")
+
+        self._worker = QueueWorker(self.jobs, self._base)
+        self._worker.log_line.connect(self.log.appendPlainText)
+        self._worker.total_changed.connect(self._on_total)
+        self._worker.point_started.connect(self._on_point)
+        self._worker.student_changed.connect(self._on_student)
+        self._worker.student_done.connect(self._on_done)
+        self._worker.point_done.connect(self._on_point_done)
+        self._worker.need_user.connect(self._on_need_user)
+        self._worker.need_text.connect(self._on_need_text)
+        self._worker.need_choice.connect(self._on_need_choice)
+        self._worker.job_started.connect(self._on_job_started)
+        self._worker.job_status.connect(self._on_job_status)
+        self._worker.job_finished.connect(self._on_job_finished)
+        self._worker.queue_state.connect(self._on_queue_state)
+        self._worker.start()
+
+    def _decide(self, action: str) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._set_state("running")
+            self.label_state.setText("继续跑队列...")
+            self._worker.decide(action)
+
     def _stop(self) -> None:
         if self._dialog is not None:
             self._dialog.close()
-        if self._worker is not None:
+        if self._worker is not None and self._worker.isRunning():
             self._worker.request_stop()
             self.label_state.setText("正在停止，处理完手上这个学生就停...")
             self.btn_stop.setEnabled(False)
@@ -360,6 +387,24 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._out_dir)))
 
     # ---- 后台线程的信号 ----
+
+    def _reset_progress(self) -> None:
+        self.bar_total.setMaximum(1)
+        self.bar_total.setValue(0)
+        self.bar_point.setMaximum(1)
+        self.bar_point.setValue(0)
+        self.label_point.setText("当前分值：-")
+
+    def _on_job_started(self, index: int) -> None:
+        job = self.jobs[index]
+        self._reset_progress()
+        self.label_state.setText(f"第 {index + 1}/{len(self.jobs)} 条：{job.title}")
+        self.log.appendPlainText(f"———— 第 {index + 1} 条：{job.title} ————")
+
+    def _on_job_status(self, index: int, text: str) -> None:
+        item = self.table.item(index, 2)
+        if item is not None:
+            item.setText(text)
 
     def _on_total(self, total: int) -> None:
         self.bar_total.setMaximum(max(total, 1))
@@ -424,22 +469,47 @@ class MainWindow(QMainWindow):
                 box.setDefaultButton(button)
         return box, answers
 
-    def _on_finished(self, ok: bool, out_dir: str, message: str) -> None:
-        self._set_running(False)
-        self.label_state.setText(message)
+    def _on_job_finished(self, index: int, ok: bool, out_dir: str, message: str) -> None:
         if out_dir:
             self._out_dir = Path(out_dir)
             self.btn_open.setEnabled(True)
-        QMessageBox.information(self, "任务结束", message)
+        if not ok:
+            QMessageBox.warning(
+                self,
+                "这一条失败了",
+                f"{self.jobs[index].title}\n\n{message}\n\n"
+                "队列已经暂停。处理好手机上的情况后，可以「重试这条」接着跑，或者「跳过这条」跑下一个。",
+            )
 
-    def _set_running(self, running: bool) -> None:
-        self.btn_start.setEnabled(not running)
-        self.btn_stop.setEnabled(running)
-        self.pages.setEnabled(not running)
-        self.mode_new.setEnabled(not running)
-        self.mode_resume.setEnabled(not running)
-        self.check_init.setEnabled(not running)
-        self.entry_device.setReadOnly(running)
+    def _on_queue_state(self, state: str) -> None:
+        if state == "运行中":
+            self._set_state("running")
+        elif state == "已暂停":
+            self._set_state("paused")
+            self.label_state.setText("队列已暂停，等你决定重试还是跳过")
+        elif state in ("已停止", "已结束"):
+            self._set_state("idle")
+            if state == "已结束":
+                self.label_state.setText("队列全部跑完")
+                QMessageBox.information(self, "队列结束", "队列里的任务都跑完了，结果已导出到各自的运行目录。")
+            else:
+                self.label_state.setText("已停止，进度已保存")
+
+    def _set_state(self, state: str) -> None:
+        running = state == "running"
+        paused = state == "paused"
+        idle = state == "idle"
+
+        self.task_box.setEnabled(idle)
+        self.table.setEnabled(not running)
+        self.btn_remove.setEnabled(not running)
+        self.btn_clear.setEnabled(not running)
+        self.btn_start.setEnabled(idle and bool(self.jobs))
+        self.btn_stop.setEnabled(running or paused)
+        self.btn_retry.setEnabled(paused)
+        self.btn_skip.setEnabled(paused)
+        self.check_init.setEnabled(idle)
+        self.entry_device.setReadOnly(running or paused)
 
     # ---- 关窗 ----
 
