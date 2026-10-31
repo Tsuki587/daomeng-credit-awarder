@@ -151,6 +151,10 @@ class MainWindow(QMainWindow):
         self.table.setMinimumHeight(120)
         layout.addWidget(self.table)
 
+        self.btn_up = QPushButton("上移")
+        self.btn_up.clicked.connect(lambda: self._move_job(-1))
+        self.btn_down = QPushButton("下移")
+        self.btn_down.clicked.connect(lambda: self._move_job(1))
         self.btn_remove = QPushButton("删除选中")
         self.btn_remove.clicked.connect(self._remove_selected)
         self.btn_clear = QPushButton("清空队列")
@@ -172,6 +176,8 @@ class MainWindow(QMainWindow):
         row.addWidget(self.btn_retry)
         row.addWidget(self.btn_skip)
         row.addSpacing(12)
+        row.addWidget(self.btn_up)
+        row.addWidget(self.btn_down)
         row.addWidget(self.btn_remove)
         row.addWidget(self.btn_clear)
         row.addWidget(self.btn_open)
@@ -342,6 +348,20 @@ class MainWindow(QMainWindow):
             return
         self.table.removeRow(row)
         del self.jobs[row]
+
+    def _move_job(self, delta: int) -> None:
+        row = self.table.currentRow()
+        target = row + delta
+        if row < 0 or target < 0 or target >= len(self.jobs):
+            return
+
+        self.jobs[row], self.jobs[target] = self.jobs[target], self.jobs[row]
+        for column in range(3):
+            first = self.table.item(row, column).text()
+            second = self.table.item(target, column).text()
+            self.table.item(row, column).setText(second)
+            self.table.item(target, column).setText(first)
+        self.table.selectRow(target)
 
     def _clear_queue(self) -> None:
         self.table.setRowCount(0)
@@ -547,6 +567,8 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(idle and bool(self.jobs))
         self.btn_stop.setEnabled(running or paused)
         self.btn_resume.setEnabled(idle)
+        self.btn_up.setEnabled(idle)
+        self.btn_down.setEnabled(idle)
         self.btn_retry.setEnabled(paused)
         self.btn_skip.setEnabled(paused)
         self.check_init.setEnabled(idle)
