@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..task import read_activity_name
+from ..task import load_config, read_activity_name
 from .worker import JobSpec, QueueWorker
 
 ROW_INDENT = 175  # 左边标签列宽
@@ -125,9 +125,12 @@ class MainWindow(QMainWindow):
 
         self.btn_add = QPushButton("加入队列")
         self.btn_add.clicked.connect(self._add_to_queue)
+        self.btn_resume = QPushButton("继续上次任务...")
+        self.btn_resume.clicked.connect(self._add_resume)
         bottom = QHBoxLayout()
         bottom.addSpacing(ROW_INDENT)
         bottom.addWidget(self.btn_add)
+        bottom.addWidget(self.btn_resume)
         bottom.addStretch()
         layout.addLayout(bottom)
         return box
@@ -282,6 +285,43 @@ class MainWindow(QMainWindow):
         self._append_row(spec)
         self._set_state("idle")
 
+    def _add_resume(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "选择上次没跑完的运行目录", str(self._base))
+        if not path:
+            return
+
+        run_dir = Path(path)
+        try:
+            saved = load_config(run_dir / "config.json")
+            files = {points: Path(item) for item, points in (saved.get("file_dir") or [])}
+            if not files:
+                raise ValueError("config.json 里没有名单路径")
+            title = read_activity_name(files[0])
+        except Exception as err:
+            QMessageBox.warning(self, "这个目录不能续跑", f"{run_dir}\n\n{err}")
+            return
+        if not (run_dir / "students.db").exists():
+            QMessageBox.warning(
+                self,
+                "这个目录不能续跑",
+                f"{run_dir}\n\n目录里没有 students.db，没有进度可以接着跑；请用上面的表单重新建一个任务。",
+            )
+            return
+
+        spec = JobSpec(
+            title=f"{title}（续跑）",
+            files=files,
+            device=self.entry_device.text().strip() or None,
+            init_device=False,
+            additional=None,
+            yiban=None,
+            click_other_tab=saved.get("click_other_tab", False),
+            run_dir=run_dir,
+        )
+        self.jobs.append(spec)
+        self._append_row(spec)
+        self._set_state("idle")
+
     def _append_row(self, spec: JobSpec) -> None:
         row = self.table.rowCount()
         self.table.insertRow(row)
@@ -344,8 +384,8 @@ class MainWindow(QMainWindow):
         device = self.entry_device.text().strip() or None
         init_device = self.check_init.isChecked()
         for job in self.jobs:
+            job.device = device
             if job.run_dir is None:
-                job.device = device
                 job.init_device = init_device
 
         self.log.clear()
@@ -506,6 +546,7 @@ class MainWindow(QMainWindow):
         self.btn_clear.setEnabled(not running)
         self.btn_start.setEnabled(idle and bool(self.jobs))
         self.btn_stop.setEnabled(running or paused)
+        self.btn_resume.setEnabled(idle)
         self.btn_retry.setEnabled(paused)
         self.btn_skip.setEnabled(paused)
         self.check_init.setEnabled(idle)

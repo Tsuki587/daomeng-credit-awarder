@@ -107,7 +107,7 @@ If you would rather not type the command line, the GUI runs exactly the same awa
 ./.venv/bin/python DM-gui.py
 ```
 
-It can start a new task (pick the roster, add as many award lists as you need and type each list's score, tick initialization on first connect) and add it to a queue; press "Start queue" and it works through the activities one after another without supervision. A failed task pauses the queue: after sorting out the phone, use "Retry this" to continue that task from its own run directory (nothing is awarded twice) or "Skip this" to move on. "Stop" halts the whole queue once the current student is done, keeping all progress. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
+It can start a new task (pick the roster, add as many award lists as you need and type each list's score, tick initialization on first connect) and add it to a queue; an unfinished run directory can be queued with "Resume previous task...", which continues from the saved progress without awarding anything twice; press "Start queue" and it works through the activities one after another without supervision. A failed task pauses the queue: after sorting out the phone, use "Retry this" to continue that task from its own run directory (nothing is awarded twice) or "Skip this" to move on. "Stop" halts the whole queue once the current student is done, keeping all progress. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
 
 On Windows, `build-windows.cmd` packages a portable folder in `dist\daomeng-gui` (build on Windows; PyInstaller cannot cross-compile). Put `adb.exe` in `vendor\platform-tools\` to bundle it, otherwise the target computer needs its own `platform-tools`.
 
@@ -127,7 +127,7 @@ Resume using **the same output directory**, without `-f`, and keep the original 
 bash run-linux.sh -r "/absolute/path/daomeng/activity-time"
 ```
 
-In the GUI, a failed queued task continues from its own run directory when you press "Retry this".
+In the GUI, queue the directory with "Resume previous task...", or press "Retry this" after a failed task; both continue from that task's own run directory.
 
 Only records marked `未处理` (unprocessed) resume automatically. If two searches cannot confirm a student, the tool marks `待核对` (needs review) and does not click Award. Do not blindly re-award `待核对` or `状态未知` (unknown status); check the app first. **The existing retry-on-exception behavior after clicking Confirm has not been changed and can still risk a duplicate award.** Check the app immediately if that happens. The app's actual credit record is authoritative.
 
