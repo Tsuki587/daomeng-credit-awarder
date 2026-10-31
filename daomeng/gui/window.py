@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
         self._base = base_dir
         self._worker: Optional[GuiWorker] = None
         self._out_dir: Optional[Path] = None
+        self._dialog: Optional[QMessageBox] = None
         self.setWindowTitle("到梦空间批量发分")
         self.resize(900, 760)
         self._build_ui()
@@ -246,6 +247,8 @@ class MainWindow(QMainWindow):
         )
 
     def _stop(self) -> None:
+        if self._dialog is not None:
+            self._dialog.close()
         if self._worker is not None:
             self._worker.request_stop()
             self.label_state.setText("正在停止，处理完手上这个学生就停...")
@@ -279,8 +282,19 @@ class MainWindow(QMainWindow):
         self.label_point.setText(f"{point:.1f} 分处理完成")
 
     def _on_need_user(self, message: str) -> None:
-        QMessageBox.information(self, "需要你在手机上操作", message)
-        self._worker.ack()
+        # 用非模态框，否则窗口被挡住就点不到「停止」
+        self._dialog = QMessageBox(self)
+        self._dialog.setWindowTitle("需要你在手机上操作")
+        self._dialog.setText(message)
+        self._dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+        self._dialog.setWindowModality(Qt.WindowModality.NonModal)
+        self._dialog.finished.connect(self._on_dialog_closed)
+        self._dialog.show()  # open() 会把模态改回 WindowModal
+
+    def _on_dialog_closed(self, _result: int) -> None:
+        self._dialog = None
+        if self._worker is not None:
+            self._worker.ack()
 
     def _on_need_text(self, message: str, default: str) -> None:
         text, ok = QInputDialog.getText(self, "需要输入", message, text=default)
