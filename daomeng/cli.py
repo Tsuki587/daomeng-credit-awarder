@@ -1,8 +1,4 @@
 import argparse
-import time
-import json
-import os
-import shutil
 import sys
 from pandas import notna
 from dataclasses import dataclass
@@ -14,6 +10,7 @@ from .automation_app import AutomationApp
 from .config import AutomationConfig
 from .excel_io import read_excel
 from .logging_utils import get_logger
+from .task import load_config, new_output_dir, read_activity_name, resolve_adb, save_config
 
 
 @dataclass
@@ -32,31 +29,6 @@ class CLIOptions:
     yiban_mapping: Optional[Path]
     click_other_tab: bool
     
-
-def _save_to_json(config: AutomationConfig, config_path: Path) -> None:
-    path = config_path / "config.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump({
-            "device": config.device,
-            "additional_list": str(config.additional_list) if config.additional_list else None,
-            "file_dir": [(str(path), pts) for pts, path in config.file_dir.items()] if config.file_dir else None,
-            "accounts": config.accounts if config.accounts else None,
-            "yiban_mapping": str(config.yiban_mapping) if config.yiban_mapping else None,
-            "click_other_tab": config.click_other_tab,
-        }, f, ensure_ascii=False, indent=4)
-        
-        
-def _load_from_json(config_path: Path) -> dict:
-    path = config_path
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    data["additional_list"] = Path(data["additional_list"]) if data.get("additional_list") else None
-    data["accounts"] = data.get("accounts") if data.get("accounts") else None
-    data["yiban_mapping"] = Path(data["yiban_mapping"]) if data.get("yiban_mapping") else None
-    data["click_other_tab"] = bool(data.get("click_other_tab", False))
-    return data
-
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -145,7 +117,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         config_path = args.r / "config.json"
         if not config_path.exists():
             raise FileNotFoundError(f"指定的恢复路径无效，未找到配置文件: {config_path}")
-        recovered_config = _load_from_json(config_path)
+        recovered_config = load_config(config_path)
         
         # 恢复模式下只允许修改设备连接参数和账号信息
         device = args.d if args.d else recovered_config.get("device", "")
@@ -230,22 +202,11 @@ def run_cli(argv: Optional[list[str]] = None) -> int:
         print(f"[bold red]命令行参数解析失败:[/bold red] {e}")
         return 1
     
-    activity_name = str(read_excel(
-        options.file_dir.get(0),
-        usecols=["活动名称"],
-        nrows=2,
-        dtype=str,
-    ).iloc[1, 0])
-
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    activity_name = read_activity_name(options.file_dir.get(0))
     base_dir = Path(sys.argv[0]).resolve().parent
     if options.recovered is None:
         print(f"[bold yellow]活动名称:[/bold yellow] [bold green]{activity_name}[/bold green]")
-        output_dir = (
-            base_dir
-            / f"{activity_name.replace('“', '').replace('”', '').replace('"', '')}-{timestamp}"
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = new_output_dir(base_dir, activity_name)
         print(f"[bold yellow]输出目录:[/bold yellow] {output_dir}")
     else:
         output_dir = options.recovered
@@ -282,16 +243,11 @@ def run_cli(argv: Optional[list[str]] = None) -> int:
         click_other_tab=options.click_other_tab,
     )
     
-    _save_to_json(config, output_dir)
+    save_config(config, output_dir)
     logger.info("配置信息已保存到 config.json")
     logger.debug(f"当前配置: {config}")
 
-    # 优先使用用户指定的路径，否则查找系统安装的命令
-    adb_path = os.environ.get("ADBUTILS_ADB_PATH") or shutil.which("adb")
-    if not adb_path or not Path(adb_path).is_file():
-        raise FileNotFoundError("找不到 adb；请安装 Android platform-tools 并确认 adb 在 PATH 中。")
-    
-    os.environ['ADBUTILS_ADB_PATH'] = adb_path
+    adb_path = resolve_adb()
     logger.info(f"配置 ADB 路径: {adb_path}")
 
     app = AutomationApp(

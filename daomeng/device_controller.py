@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 from time import sleep
-from typing import Optional
+from typing import Callable, Optional
 from rich.prompt import Prompt
 from rich.live import Live
 from contextlib import contextmanager
@@ -28,6 +28,8 @@ class DeviceController:
         self.device: u2.Device = None  # type: ignore # 延迟连接
         self.score: Optional[float] = None
         self._live: Optional[Live] = None  # 用于暂停 Live 显示以进行用户交互
+        self._wait_hook: Optional[Callable[[str], None]] = None  # 需要人工确认时的回调
+        self._ask_hook: Optional[Callable[[str, str], str]] = None  # 需要用户输入时的回调
         
         # 编译设备连接错误的正则模式，仅匹配真正的 ADB 连接错误
         self._device_error_patterns = re.compile(
@@ -63,6 +65,32 @@ class DeviceController:
             return True
             
         return False
+
+    def set_user_hooks(
+        self,
+        wait: Optional[Callable[[str], None]] = None,
+        ask: Optional[Callable[[str, str], str]] = None,
+    ) -> None:
+        """设置需要人工干预时的回调；图形界面用它弹窗，命令行不设置则走终端输入。"""
+        self._wait_hook = wait
+        self._ask_hook = ask
+
+    def _wait_user(self, message: str) -> None:
+        """暂停任务等人操作完按提示继续。"""
+        self._pause_live_for_prompt()
+        try:
+            if self._wait_hook:
+                self._wait_hook(message)
+            else:
+                Prompt.ask(message)
+        finally:
+            self._resume_live()
+
+    def _ask_user(self, message: str, default: str) -> str:
+        """向用户要一段输入。"""
+        if self._ask_hook:
+            return self._ask_hook(message, default)
+        return Prompt.ask(message, default=default)
 
     def set_live(self, live: Optional[Live]) -> None:
         """设置 Live 对象，用于在需要用户交互时暂停显示。
@@ -273,9 +301,9 @@ class DeviceController:
         try:
             while True:
                 console.print("\n[yellow]设备连接失败，请选择重连方式:[/yellow]")
-                user_input = Prompt.ask(
-                    "[cyan]输入新的 IP:端口 (如 192.168.1.100:5555)，留空使用有线连接，输入 'e' 退出[/cyan]",
-                    default=""
+                user_input = self._ask_user(
+                    "设备连接失败，输入新的 IP:端口（如 192.168.1.100:5555），留空使用有线连接，输入 'e' 退出",
+                    "",
                 ).strip()
                 
                 if user_input.lower() == 'e':
@@ -331,12 +359,7 @@ class DeviceController:
                     d.app_start(DMKJ_PACKAGE_NAME, stop=True)
                 if back_count > 25:
                     self._logger.error(f"已返回 {back_count} 次仍未到达目标界面，请求手动干预")
-                    # 暂停 Live 显示并清除残留内容
-                    self._pause_live_for_prompt()
-                    try:
-                        Prompt.ask("多次返回无效，请手动操作至目标页后按回车继续")
-                    finally:
-                        self._resume_live()
+                    self._wait_user("已返回多次仍未到达目标界面，请手动操作到目标页后继续")
                 if back_count % 5 == 0 and back_count > 4:
                     self._logger.warning(f"已返回 {back_count} 次，重启应用尝试重置")
                     d.app_start(DMKJ_PACKAGE_NAME, stop=True)
@@ -356,12 +379,7 @@ class DeviceController:
                             self._logger.info("自动登录完成")
                         else:
                             self._logger.warning("检测到需要登录，但未配置账号，等待手动登录")
-                            # 暂停 Live 显示并清除残留内容
-                            self._pause_live_for_prompt()
-                            try:
-                                Prompt.ask("检测到需要登录，请登录后按回车继续")
-                            finally:
-                                self._resume_live()
+                            self._wait_user("检测到需要登录，请在手机上登录后继续")
                     if current == "首页":
                         self._logger.debug("当前在首页，点击'我的'")
                         d(**SELECTORS["我的"]).click()
