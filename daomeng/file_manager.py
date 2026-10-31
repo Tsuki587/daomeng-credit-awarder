@@ -26,10 +26,46 @@ class FileManager:
         self._yiban_mapping_dict: Optional[dict[str, str]] = None  # {易班ID: 学号}
         self._yiban_name_dict: Optional[dict[str, str]] = None  # {易班ID: 姓名}
         self._conn: Optional[sqlite3.Connection] = None  # 共享的数据库连接
+        self._ask_hook = None  # 图形界面接管输入
+        self._choose_hook = None
         
         # 加载易班映射文件
         if self._config.yiban_mapping:
             self._load_yiban_mapping()
+
+    def set_user_hooks(self, ask=None, choose=None) -> None:
+        """把需要人工输入的环节交给图形界面，命令行下留空走 Prompt.ask。"""
+        self._ask_hook = ask
+        self._choose_hook = choose
+
+    def _ask_user(self, message: str, default: str = "") -> str:
+        """问一行文字：索引、学号等。"""
+        if self._ask_hook:
+            return self._ask_hook(message, default)
+        return Prompt.ask(message, default=default)
+
+    def _choose_user(self, message: str, options: List[tuple[str, str]], default: str) -> str:
+        """让用户在几个固定选项里挑一个，返回选项编号。"""
+        if self._choose_hook:
+            return self._choose_hook(message, options, default)
+        console = Console()
+        console.print(f"\n[bold cyan]{message}[/bold cyan]")
+        for key, text in options:
+            console.print(f"{key}. {text}")
+        return Prompt.ask("请输入选项", choices=[key for key, _ in options], default=default)
+
+    def _records_text(self, records: List[Dict], columns: tuple[str, ...], limit: int = 30) -> str:
+        """把记录拼成带序号的几行文字，供对话框展示，同时写进日志。"""
+        lines = []
+        for index, record in enumerate(records, 1):
+            values = [self._format_display_value(record.get(column)) for column in columns]
+            lines.append(f"{index}. " + "  ".join(values))
+
+        for line in lines[:200]:
+            self._logger.info(line)
+        if len(lines) > limit:
+            return "\n".join(lines[:limit] + [f"……共 {len(lines)} 条，其余见 automation.log"])
+        return "\n".join(lines)
 
     def __enter__(self):
         """进入上下文管理器，建立数据库连接。"""
@@ -455,12 +491,14 @@ class FileManager:
         console = Console()
         self._display_invalid_id_table(invalid_records)
         
-        console.print("\n[bold cyan]请选择处理方式:[/bold cyan]")
-        console.print("1. 全部拒绝")
-        console.print("2. 仅智能选择")
-        console.print("3. 智能选择，并手动输入无法确认的学号")
-        
-        choice = Prompt.ask("请输入选项", choices=["1", "2", "3"], default="3")
+        message = f"发现 {len(invalid_records)} 条无效学号记录，怎么处理？\n\n" \
+                  + self._records_text(invalid_records, ("invalid_id", "name", "match_count"))
+        choice = self._choose_user(
+            message,
+            [("1", "全部拒绝"),
+             ("2", "仅智能选择"),
+             ("3", "智能选择，并手动输入无法确认的学号")],
+            "3")
         self._logger.info(f"用户选择了处理方式: {choice}")
         
         id_mapping: Dict[Any, str] = {}
@@ -556,11 +594,11 @@ class FileManager:
 
                 
                 while True:
-                    console.print("\n请选择正确的学号 (输入索引) 或输入学号（0 跳过该记录）:")
-                    index_choice = Prompt.ask(
-                        "选择或输入学号",
-                        default="0"
-                    )
+                    index_choice = self._ask_user(
+                        f"请选择正确的学号（输入序号）或直接输入 11 位学号，0 跳过\n\n"
+                        f"学生: {name}  错误学号: {invalid_id}\n"
+                        + self._records_text(matched_students.to_dict("records"), ("学号", "姓名", "班级")),
+                        "0")
                     try:
                         idx = int(index_choice)
                         if 1 <= idx <= len(matched_students):
@@ -602,13 +640,15 @@ class FileManager:
         console = Console()
         self._display_name_mismatch_table(mismatch_records)
         
-        console.print("\n[bold cyan]请选择处理方式:[/bold cyan]")
-        console.print("1. 全部拒绝")
-        console.print("2. 全部同意")
-        console.print("3. 仅同意特定学生")
-        console.print("4. 仅拒绝特定学生")
-        
-        choice = Prompt.ask("请输入选项", choices=["1", "2", "3", "4"], default="2")
+        message = f"发现 {len(mismatch_records)} 条姓名不匹配记录，怎么处理？\n\n" \
+                  + self._records_text(mismatch_records, ("学号", "发分表姓名", "录取表姓名"))
+        choice = self._choose_user(
+            message,
+            [("1", "全部拒绝"),
+             ("2", "全部同意"),
+             ("3", "仅同意特定学生"),
+             ("4", "仅拒绝特定学生")],
+            "2")
         
         all_ids = [record['学号'] for record in mismatch_records]
         
@@ -620,7 +660,7 @@ class FileManager:
             return all_ids
         elif choice == "3":
             while True:
-                indices_str = Prompt.ask("请输入要保留的学生索引 (逗号分隔)", default="")
+                indices_str = self._ask_user("要保留哪几条？输入序号，逗号分隔（如 1,3）", "")
                 try:
                     indices = [int(idx.strip()) for idx in indices_str.split(",") if idx.strip()]
                     approved_ids = [all_ids[idx - 1] for idx in indices if 1 <= idx <= len(all_ids)]
@@ -630,7 +670,7 @@ class FileManager:
                     self._logger.warning(f"无效输入: {e}，请重试")
         elif choice == "4":
             while True:
-                indices_str = Prompt.ask("请输入要拒绝的学生索引 (逗号分隔)", default="")
+                indices_str = self._ask_user("要拒绝哪几条？输入序号，逗号分隔（如 2,4）", "")
                 try:
                     indices = [int(idx.strip()) for idx in indices_str.split(",") if idx.strip()]
                     rejected_indices = set(indices)

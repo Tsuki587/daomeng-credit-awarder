@@ -12,6 +12,9 @@ class BatchHooks:
     回调都在主流程线程里同步调用，实现方负责把自己的控件更新排到界面线程。
     """
 
+    def on_prepare(self, controller: DeviceController, file_manager: FileManager) -> None:
+        """设备已连上、Excel 还没读的时候调用，用来装人工干预钩子。"""
+
     def on_loop_start(self, controller: DeviceController) -> None:
         """发分循环开始前调用，此时设备已连上、数据库已就绪。"""
 
@@ -93,6 +96,7 @@ def run_session(config: AutomationConfig, logger: logging.Logger, hooks: BatchHo
         logger.info("=" * 60)
 
         with FileManager(config, logger) as file_manager:
+            hooks.on_prepare(controller, file_manager)
             if file_manager.check_database_initialized():
                 logger.info("检测到已有学生数据库，跳过Excel读取步骤")
             else:

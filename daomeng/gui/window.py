@@ -6,12 +6,12 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QDoubleSpinBox,
     QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -29,6 +29,36 @@ from .worker import GuiWorker, JobSpec
 
 ROW_INDENT = 175  # 左边标签列宽
 ROW_TAIL = 160  # 没有分值控件的行，右侧留白与发分名单行对齐
+
+
+class _TextDialog(QDialog):
+    """一段说明 + 一个输入框，用来填学号、序号这些。"""
+
+    def __init__(self, title: str, message: str, default: str, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QVBoxLayout(self)
+
+        label = QLabel(message)
+        label.setWordWrap(True)
+        label.setMinimumWidth(460)
+
+        self.edit = QLineEdit(default)
+        ok = QPushButton("确定")
+        cancel = QPushButton("取消")
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        buttons.addWidget(ok)
+        buttons.addWidget(cancel)
+
+        layout.addWidget(label)
+        layout.addWidget(self.edit)
+        layout.addLayout(buttons)
+        self.edit.selectAll()
+        self.edit.setFocus()
 
 
 class MainWindow(QMainWindow):
@@ -270,6 +300,7 @@ class MainWindow(QMainWindow):
         self._worker.point_done.connect(self._on_point_done)
         self._worker.need_user.connect(self._on_need_user)
         self._worker.need_text.connect(self._on_need_text)
+        self._worker.need_choice.connect(self._on_need_choice)
         self._worker.run_finished.connect(self._on_finished)
         self._worker.start()
 
@@ -367,8 +398,31 @@ class MainWindow(QMainWindow):
             self._worker.ack()
 
     def _on_need_text(self, message: str, default: str) -> None:
-        text, ok = QInputDialog.getText(self, "需要输入", message, text=default)
-        self._worker.answer(text if ok else default)
+        dialog = _TextDialog("需要输入", message, default, self)
+        accepted = dialog.exec()
+        self._worker.answer(dialog.edit.text() if accepted else default)
+
+    def _on_need_choice(self, message: str, options, default: str) -> None:
+        box, answers = self._choice_box(message, options, default)
+        box.exec()
+        self._worker.answer(answers.get(box.clickedButton(), default))
+
+    def _choice_box(self, message: str, options, default: str):
+        # 首行是摘要，明细收进「显示详细信息」，免得把窗口撑爆
+        headline, _, detail = str(message).partition("\n\n")
+        box = QMessageBox(self)
+        box.setWindowTitle("需要你确认")
+        box.setText(headline)
+        if detail:
+            box.setDetailedText(detail)
+
+        answers = {}
+        for key, text in options:
+            button = box.addButton(f"{key}. {text}", QMessageBox.ButtonRole.AcceptRole)
+            answers[button] = key
+            if key == default:
+                box.setDefaultButton(button)
+        return box, answers
 
     def _on_finished(self, ok: bool, out_dir: str, message: str) -> None:
         self._set_running(False)

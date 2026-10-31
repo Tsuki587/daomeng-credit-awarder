@@ -49,6 +49,7 @@ class GuiWorker(QThread, BatchHooks):
     point_done = Signal(float)
     need_user = Signal(str)
     need_text = Signal(str, str)
+    need_choice = Signal(str, object, str)
     run_finished = Signal(bool, str, str)  # 是否跑完, 运行目录, 给用户看的提示
 
     def __init__(self, spec: JobSpec, base_dir: Path) -> None:
@@ -88,6 +89,11 @@ class GuiWorker(QThread, BatchHooks):
 
     def _ask_user(self, message: str, default: str) -> str:
         self.need_text.emit(message, default)
+        self._wait_for_ui()
+        return self._answer or default
+
+    def _choose(self, message: str, options, default: str) -> str:
+        self.need_choice.emit(message, options, default)
         self._wait_for_ui()
         return self._answer or default
 
@@ -161,8 +167,10 @@ class GuiWorker(QThread, BatchHooks):
 
     # ---- BatchHooks ----
 
-    def on_loop_start(self, controller) -> None:
+    def on_prepare(self, controller, file_manager) -> None:
+        # 读名单时的「无效学号」「姓名不符」确认也走弹窗，命令行那套 input() 在界面里没有 stdin
         controller.set_user_hooks(wait=self._wait_user, ask=self._ask_user)
+        file_manager.set_user_hooks(ask=self._ask_user, choose=self._choose)
 
     def on_total(self, total: int) -> None:
         self._total = total
