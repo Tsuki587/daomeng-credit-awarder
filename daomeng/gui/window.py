@@ -324,7 +324,7 @@ class MainWindow(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "名单和进度对不上",
-                f"{run_dir}\n\n{detail}\n\n还是按进度库里的记录续跑吗？表里多出来的人这次不会发。",
+                f"{run_dir}\n\n{detail}\n\n续跑时会按现在的名单来：新加的人补进去一起发，已经发过的不会重发。",
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return

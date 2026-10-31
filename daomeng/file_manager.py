@@ -1125,6 +1125,85 @@ class FileManager:
             self._logger.error(f"保存到数据库失败，已回滚: {e}")
             raise
 
+    def merge_student_lists(self) -> Dict[str, int]:
+        """续跑前把名单里新加的人并进数据库；已发过的记录一律不动。
+
+        Returns:
+            统计：新增人数、从「未报名/学号错误」恢复成「未处理」的人数
+        """
+        dataframes = self._read_student_list()
+        enrollment = dataframes.get(0.0)
+        if enrollment is None or enrollment.empty:
+            raise ValueError("缺少录取名单")
+        roster = {
+            str(student_id).strip(): str(name).strip()
+            for student_id, name in zip(enrollment["学号"], enrollment["姓名"])
+        }
+
+        cursor = self._conn.cursor()
+        rows = cursor.execute("SELECT student_id, points, status FROM students")
+        stored = {str(student_id): (float(points), str(status)) for student_id, points, status in rows}
+
+        added: List[str] = []
+        revived: List[str] = []
+        skipped: List[str] = []
+
+        def _ensure(student_id: str, name: str, points: float) -> None:
+            eligible = student_id in roster
+            if student_id in stored:
+                saved_points, status = stored[student_id]
+                if eligible and status.startswith(("未报名", "学号错误", "姓名错误")):
+                    cursor.execute(
+                        "UPDATE students SET name = ?, status = '未处理', "
+                        "updated_at = datetime('now', 'localtime') WHERE student_id = ?",
+                        (roster[student_id], student_id),
+                    )
+                    stored[student_id] = (saved_points, "未处理")
+                    revived.append(f"{student_id} {roster[student_id]}")
+                elif status == "未处理" and not saved_points == points:
+                    cursor.execute(
+                        "UPDATE students SET points = ?, updated_at = datetime('now', 'localtime') "
+                        "WHERE student_id = ?",
+                        (points, student_id),
+                    )
+                    stored[student_id] = (points, status)
+                return
+
+            if not eligible:
+                skipped.append(f"{student_id} {name}")
+                return
+            cursor.execute(
+                "INSERT INTO students (student_id, name, points, status) VALUES (?, ?, ?, '未处理')",
+                (student_id, roster[student_id], points),
+            )
+            stored[student_id] = (points, "未处理")
+            added.append(f"{student_id} {roster[student_id]}")
+
+        for points, frame in dataframes.items():
+            if points <= 0:
+                continue
+            for _, row in frame.iterrows():
+                student_id = self._extract_student_id(str(row.get("学号", "")))
+                if not student_id or len(student_id) != 11:
+                    continue
+                _ensure(student_id, str(row.get("姓名", "")).strip(), float(points))
+
+        self._conn.commit()
+        if added:
+            self._logger.info(f"名单里新加的学生已补进数据库 {len(added)} 人：{self._sample_names(added)}")
+        if revived:
+            self._logger.info(f"录取名单里补上了 {len(revived)} 人，已恢复为未处理：{self._sample_names(revived)}")
+        if skipped:
+            self._logger.warning(
+                f"有 {len(skipped)} 人不在录取名单里，不参与发分：{self._sample_names(skipped)}"
+            )
+        return {"added": len(added), "revived": len(revived), "skipped": len(skipped)}
+
+    def _sample_names(self, items: List[str], limit: int = 10) -> str:
+        """最多列 limit 个，其余折成「等 N 人」。"""
+        shown = "、".join(items[:limit])
+        return shown if len(items) <= limit else f"{shown} 等 {len(items)} 人"
+
     def get_all_points_list(self) -> List[float]:
         """获取所有分值列表（去重并排序）。"""
         self._logger.debug("从数据库获取所有分值列表")

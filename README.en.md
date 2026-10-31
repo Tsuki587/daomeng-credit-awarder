@@ -127,7 +127,7 @@ Resume using **the same output directory**, without `-f`, and keep the original 
 bash run-linux.sh -r "/absolute/path/daomeng/activity-time"
 ```
 
-In the GUI, queue the directory with "Resume previous task...", or press "Retry this" after a failed task; both continue from that task's own run directory.
+In the GUI, queue the directory with "Resume previous task...", or press "Retry this" after a failed task; both continue from that task's own run directory. Before resuming, the lists are compared against the progress database and any difference (added or removed people, a different activity) is shown for confirmation; after that the current lists win - newly added students are queued too, already-awarded ones are never repeated.
 
 Only records marked `未处理` (unprocessed) resume automatically. If two searches cannot confirm a student, the tool marks `待核对` (needs review) and does not click Award. Do not blindly re-award `待核对` or `状态未知` (unknown status); check the app first. **The existing retry-on-exception behavior after clicking Confirm has not been changed and can still risk a duplicate award.** Check the app immediately if that happens. The app's actual credit record is authoritative.
 

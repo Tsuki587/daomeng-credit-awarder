@@ -102,6 +102,11 @@ def run_session(config: AutomationConfig, logger: logging.Logger, hooks: BatchHo
                 logger.info("检测到已有学生数据库，跳过Excel读取步骤")
                 for problem in compare_resume(config.output_dir, config.file_dir):
                     logger.warning(f"名单和进度对不上：{problem}")
+                counts = file_manager.merge_student_lists()
+                if counts["added"] or counts["revived"]:
+                    logger.info(
+                        f"按现在的名单补了 {counts['added']} 人、恢复 {counts['revived']} 人待发"
+                    )
             else:
                 logger.info("开始读取Excel文件并生成学生数据库")
                 file_manager.save_students_to_db()
