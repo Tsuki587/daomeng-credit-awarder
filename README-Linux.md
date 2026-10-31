@@ -21,6 +21,25 @@ chmod +x install-linux.sh run-linux.sh
 
 依赖安装在本目录的 `.venv` 中。若 ADB 不在系统 `PATH` 内，可在运行前设置 `ADBUTILS_ADB_PATH` 为其绝对路径。
 
+## 图形界面
+
+图形界面和命令行是同一套流程，只是把参数填在窗口里，进度、日志和停止按钮也在窗口里：
+
+```bash
+.venv/bin/python -m pip install -r requirements-gui.txt
+.venv/bin/python DM-gui.py
+```
+
+- 新建任务：选录取名单（0 分）和 1 分 / 2 分名单，首次连接勾选“初始化设备”
+- 继续上次任务：选上次生成的结果文件夹，读其中的 `config.json` 和 `students.db`
+- 显示总进度、当前分值的进度和实时日志
+- “停止”会在处理完当前学生后停下，进度保留，之后可继续
+- 结束后点“打开运行目录”查看导出的 Excel
+
+手机上需要人工处理时（掉登录、需要重连、多次返回仍未到达目标页），窗口会弹窗等你操作完再继续。
+
+在 Windows 上打包成 exe 执行 `build-windows.cmd`，产物在 `dist\daomeng-gui\`，整个目录拷到目标电脑即可运行。
+
 ## 准备名单和手机
 
 手机上安装并登录“到梦空间”，打开 USB 调试并允许电脑连接。运行 `adb devices`，设备状态应为 `device`。请先完成目标学生的签到或补签，再启动发分。

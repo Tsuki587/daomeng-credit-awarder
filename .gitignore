@@ -5,6 +5,9 @@
 !.gitignore
 !.gitattributes
 !DM.py
+!DM-gui.py
+!requirements-gui.txt
+!build-windows.cmd
 !README-Linux.md
 !README.en.md
 !install-windows.cmd
