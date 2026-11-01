@@ -3,15 +3,14 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QCloseEvent, QDesktopServices
+from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
     QFileDialog,
-    QGridLayout,
-    QGroupBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -23,15 +22,23 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ..task import compare_resume, load_config, read_activity_name
+from . import theme
 from .worker import JobSpec, QueueWorker
 
-ROW_INDENT = 175  # 左边标签列宽
-ROW_TAIL = 160  # 没有分值控件的行，右侧留白与发分名单行对齐
+LABEL_WIDTH = 88  # 表单左侧标签宽度
+STATUS_COLORS = {
+    "等待中": theme.MUTED,
+    "运行中": theme.PRIMARY,
+    "完成": theme.SUCCESS,
+    "失败": theme.ERROR,
+    "已停止": theme.WARNING,
+}
 
 
 class _TextDialog(QDialog):
@@ -48,6 +55,7 @@ class _TextDialog(QDialog):
 
         self.edit = QLineEdit(default)
         ok = QPushButton("确定")
+        ok.setObjectName("primary")
         cancel = QPushButton("取消")
         ok.clicked.connect(self.accept)
         cancel.clicked.connect(self.reject)
@@ -73,84 +81,185 @@ class MainWindow(QMainWindow):
         self._dialog: Optional[QMessageBox] = None
         self.jobs: list[JobSpec] = []
         self.setWindowTitle("到梦空间批量发分")
-        self.resize(940, 860)
+        self.setWindowIcon(theme.icon())
+        self.resize(1180, 820)
+        self.setMinimumSize(1040, 730)
         self._build_ui()
         self._set_state("idle")
 
     # ---- 界面搭建 ----
 
     def _build_ui(self) -> None:
-        central = QWidget()
-        layout = QVBoxLayout(central)
-        self.task_box = self._build_task_box()
-        layout.addWidget(self.task_box)
-        layout.addWidget(self._build_queue_box())
-        layout.addWidget(self._build_device_box())
-        layout.addWidget(self._build_progress_box())
-        layout.addWidget(QLabel("运行日志"))
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(5000)
-        layout.addWidget(self.log, 1)
-        self.setCentralWidget(central)
+        root = QWidget()
+        root.setObjectName("root")
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(16, 14, 16, 16)
+        outer.setSpacing(12)
+        outer.addLayout(self._build_header())
 
-    def _build_task_box(self) -> QGroupBox:
-        box = QGroupBox("新建任务")
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(9, 9, 9, 9)
+        body = QHBoxLayout()
+        body.setSpacing(12)
 
-        self.entry_zero = self._add_file_row(layout, "录取名单（不发放）")
+        left = QWidget()
+        left.setFixedWidth(440)
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(12)
+        self.task_box = self._build_task_card()
+        left_layout.addWidget(self.task_box)
+        left_layout.addWidget(self._build_device_card())
+        left_layout.addStretch()
+        body.addWidget(left)
+
+        right = QVBoxLayout()
+        right.setSpacing(12)
+        right.addWidget(self._build_queue_card(), 3)
+        right.addWidget(self._build_progress_card())
+        right.addWidget(self._build_log_card(), 2)
+        body.addLayout(right, 1)
+
+        outer.addLayout(body, 1)
+        self.setCentralWidget(root)
+
+    def _build_header(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(theme.icon().pixmap(36, 36))
+        title = QLabel("到梦空间批量发分")
+        title.setObjectName("h1")
+        self.chip = QLabel("空闲")
+        self.chip.setObjectName("chip")
+
+        row.addWidget(logo)
+        row.addSpacing(4)
+        row.addWidget(title)
+        row.addStretch()
+        row.addWidget(self.chip)
+        return row
+
+    def _card(self, title: str, hint: str = "") -> tuple[QFrame, QVBoxLayout, QHBoxLayout]:
+        frame = QFrame()
+        frame.setObjectName("card")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
+
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        if title:
+            label = QLabel(title)
+            label.setObjectName("cardTitle")
+            head.addWidget(label)
+        if hint:
+            note = QLabel(hint)
+            note.setObjectName("hint")
+            head.addWidget(note)
+        head.addStretch()
+        layout.addLayout(head)
+        return frame, layout, head
+
+    def _build_task_card(self) -> QFrame:
+        frame, layout, _ = self._card("新建任务", "活动名称和名单都在这里填")
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        label = QLabel("活动名称")
+        label.setFixedWidth(LABEL_WIDTH)
+        self.entry_activity = QLineEdit()
+        self.entry_activity.setPlaceholderText("在 App 里看到的完整活动名")
+        row.addWidget(label)
+        row.addWidget(self.entry_activity, 1)
+        layout.addLayout(row)
 
         # 发分名单的份数和分值都可以改，不写死 1 分、2 分
         self.score_rows: list[tuple[QWidget, QLineEdit, QDoubleSpinBox]] = []
         self.score_rows_layout = QVBoxLayout()
         self.score_rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.score_rows_layout.setSpacing(8)
         layout.addLayout(self.score_rows_layout)
         self._add_score_row("", 1.0)
 
         add = QPushButton("再加一份发分名单")
         add.clicked.connect(lambda: self._add_score_row("", 1.0))
         add_row = QHBoxLayout()
-        add_row.addSpacing(ROW_INDENT)
+        add_row.addSpacing(LABEL_WIDTH)
         add_row.addWidget(add)
         add_row.addStretch()
         layout.addLayout(add_row)
 
-        self.entry_extra = self._add_file_row(layout, "额外名单（可选，自带分值列）")
-        self.entry_yiban = self._add_file_row(layout, "易班映射表（可选）")
+        self.entry_roster = self._add_file_row(layout, "录取名单", "可选，留空就按名单里的学号直接发")
+        self.entry_extra = self._add_file_row(layout, "额外名单", "可选，自带姓名、学号、分值")
+        self.entry_yiban = self._add_file_row(layout, "易班映射", "可选，名单里只有易班 ID 才要")
 
         self.check_tab = QCheckBox("搜索前先切到「已获得其他学分」")
-        self.check_tab.setContentsMargins(ROW_INDENT, 0, 0, 0)
+        self.check_tab.setContentsMargins(LABEL_WIDTH, 0, 0, 0)
         layout.addWidget(self.check_tab)
 
         self.btn_add = QPushButton("加入队列")
+        self.btn_add.setObjectName("primary")
         self.btn_add.clicked.connect(self._add_to_queue)
         self.btn_resume = QPushButton("继续上次任务...")
         self.btn_resume.clicked.connect(self._add_resume)
         bottom = QHBoxLayout()
-        bottom.addSpacing(ROW_INDENT)
+        bottom.setSpacing(8)
+        bottom.addSpacing(LABEL_WIDTH)
         bottom.addWidget(self.btn_add)
         bottom.addWidget(self.btn_resume)
         bottom.addStretch()
         layout.addLayout(bottom)
-        return box
+        return frame
 
-    def _build_queue_box(self) -> QGroupBox:
-        box = QGroupBox("等候区（按顺序一条一条跑）")
-        layout = QVBoxLayout(box)
+    def _build_device_card(self) -> QFrame:
+        frame, layout, _ = self._card("设备", "同一时间只能连一台手机")
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        label = QLabel("无线地址")
+        label.setFixedWidth(LABEL_WIDTH)
+        self.entry_device = QLineEdit()
+        self.entry_device.setPlaceholderText("例如 192.168.1.10:5555，留空用数据线")
+        row.addWidget(label)
+        row.addWidget(self.entry_device, 1)
+        layout.addLayout(row)
+
+        self.check_init = QCheckBox("首次连接，初始化设备（安装 uiautomator2）")
+        self.check_init.setContentsMargins(LABEL_WIDTH, 0, 0, 0)
+        layout.addWidget(self.check_init)
+        return frame
+
+    def _build_queue_card(self) -> QFrame:
+        frame, layout, head = self._card("等候区", "从上到下一块一块跑")
+        self.btn_start = QPushButton("开始队列")
+        self.btn_start.setObjectName("primary")
+        self.btn_start.clicked.connect(self._start_queue)
+        self.btn_stop = QPushButton("停止")
+        self.btn_stop.setObjectName("danger")
+        self.btn_stop.clicked.connect(self._stop)
+        head.addWidget(self.btn_start)
+        head.addWidget(self.btn_stop)
 
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["活动", "分值", "状态"])
         self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setHighlightSections(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setMinimumHeight(120)
-        layout.addWidget(self.table)
+        self.table.setMinimumHeight(150)
+        layout.addWidget(self.table, 1)
 
+        self.queue_hint = QLabel("还没有任务：在左边填好活动名称和名单，点「加入队列」。")
+        self.queue_hint.setObjectName("hint")
+        layout.addWidget(self.queue_hint)
+
+        self.btn_retry = QPushButton("重试这条")
+        self.btn_retry.clicked.connect(lambda: self._decide("retry"))
+        self.btn_skip = QPushButton("跳过这条")
+        self.btn_skip.clicked.connect(lambda: self._decide("skip"))
         self.btn_up = QPushButton("上移")
         self.btn_up.clicked.connect(lambda: self._move_job(-1))
         self.btn_down = QPushButton("下移")
@@ -159,51 +268,31 @@ class MainWindow(QMainWindow):
         self.btn_remove.clicked.connect(self._remove_selected)
         self.btn_clear = QPushButton("清空队列")
         self.btn_clear.clicked.connect(self._clear_queue)
-        self.btn_start = QPushButton("开始队列")
-        self.btn_start.clicked.connect(self._start_queue)
-        self.btn_stop = QPushButton("停止")
-        self.btn_stop.clicked.connect(self._stop)
-        self.btn_retry = QPushButton("重试这条")
-        self.btn_retry.clicked.connect(lambda: self._decide("retry"))
-        self.btn_skip = QPushButton("跳过这条")
-        self.btn_skip.clicked.connect(lambda: self._decide("skip"))
         self.btn_open = QPushButton("打开运行目录")
         self.btn_open.clicked.connect(self._open_output)
 
         row = QHBoxLayout()
-        row.addWidget(self.btn_start)
-        row.addWidget(self.btn_stop)
-        row.addWidget(self.btn_retry)
-        row.addWidget(self.btn_skip)
-        row.addSpacing(12)
+        row.setSpacing(8)
         row.addWidget(self.btn_up)
         row.addWidget(self.btn_down)
         row.addWidget(self.btn_remove)
         row.addWidget(self.btn_clear)
         row.addWidget(self.btn_open)
         row.addStretch()
+        row.addWidget(self.btn_retry)
+        row.addWidget(self.btn_skip)
         layout.addLayout(row)
-        return box
+        return frame
 
-    def _build_device_box(self) -> QGroupBox:
-        box = QGroupBox("设备")
-        grid = QGridLayout(box)
-
-        self.entry_device = QLineEdit()
-        self.entry_device.setPlaceholderText("例如 192.168.1.10:5555，留空则用数据线连接")
-        grid.addWidget(QLabel("无线调试地址"), 0, 0)
-        grid.addWidget(self.entry_device, 0, 1)
-
-        self.check_init = QCheckBox("首次连接，初始化设备（安装 uiautomator2）")
-        grid.addWidget(self.check_init, 1, 1)
-        return box
-
-    def _build_progress_box(self) -> QGroupBox:
-        box = QGroupBox("进度")
-        grid = QGridLayout(box)
+    def _build_progress_card(self) -> QFrame:
+        frame, layout, head = self._card("进度")
+        self.label_point = QLabel("当前分值：-")
+        self.label_point.setObjectName("hint")
+        head.addWidget(self.label_point)
 
         self.label_state = QLabel("准备就绪")
-        self.label_point = QLabel("当前分值：-")
+        layout.addWidget(self.label_state)
+
         self.bar_total = QProgressBar()
         self.bar_total.setFormat("%v / %m 人")
         self.bar_total.setMaximum(1)
@@ -211,56 +300,107 @@ class MainWindow(QMainWindow):
         self.bar_point.setFormat("%v / %m 人")
         self.bar_point.setMaximum(1)
 
-        grid.addWidget(self.label_state, 0, 0)
-        grid.addWidget(self.label_point, 0, 1)
-        grid.addWidget(QLabel("总进度"), 1, 0)
-        grid.addWidget(self.bar_total, 1, 1)
-        grid.addWidget(QLabel("本分值"), 2, 0)
-        grid.addWidget(self.bar_point, 2, 1)
-        grid.setColumnStretch(1, 1)
-        return box
+        total_label = QLabel("总进度")
+        total_label.setFixedWidth(48)
+        total_label.setObjectName("hint")
+        point_label = QLabel("本分值")
+        point_label.setFixedWidth(48)
+        point_label.setObjectName("hint")
 
-    def _add_file_row(self, layout: QVBoxLayout, title: str) -> QLineEdit:
+        total_row = QHBoxLayout()
+        total_row.setSpacing(8)
+        total_row.addWidget(total_label)
+        total_row.addWidget(self.bar_total, 1)
+
+        point_row = QHBoxLayout()
+        point_row.setSpacing(8)
+        point_row.addWidget(point_label)
+        point_row.addWidget(self.bar_point, 1)
+
+        layout.addLayout(total_row)
+        layout.addLayout(point_row)
+        return frame
+
+    def _build_log_card(self) -> QFrame:
+        frame, layout, head = self._card("")
+
+        self.btn_log_toggle = QToolButton()
+        self.btn_log_toggle.setObjectName("logToggle")
+        self.btn_log_toggle.setText("运行日志")
+        self.btn_log_toggle.setCheckable(True)
+        self.btn_log_toggle.setChecked(True)
+        self.btn_log_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.btn_log_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_log_toggle.clicked.connect(self._toggle_log)
+
+        self.btn_clear_log = QPushButton("清空")
+        self.btn_clear_log.clicked.connect(self._clear_log)
+        head.addWidget(self.btn_log_toggle)
+        head.addWidget(self.btn_clear_log)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(5000)
+        self.log.setPlaceholderText("跑起来以后，这里会一行行显示进度")
+        layout.addWidget(self.log, 1)
+        return frame
+
+    def _add_file_row(self, layout: QVBoxLayout, title: str, placeholder: str = "") -> QLineEdit:
         row = QHBoxLayout()
+        row.setSpacing(8)
         label = QLabel(title)
-        label.setFixedWidth(ROW_INDENT)
+        label.setFixedWidth(LABEL_WIDTH)
         entry = QLineEdit()
-        button = QPushButton("浏览...")
+        entry.setPlaceholderText(placeholder)
+        button = QPushButton("浏览")
+        button.setFixedWidth(56)
         button.clicked.connect(lambda: self._pick_file(entry))
         row.addWidget(label)
         row.addWidget(entry, 1)
         row.addWidget(button)
-        row.addSpacing(ROW_TAIL)
         layout.addLayout(row)
         return entry
 
     def _add_score_row(self, path: str = "", points: float = 1.0) -> None:
         # 一份表对应一个分值，份数任意
         container = QWidget()
-        row = QHBoxLayout(container)
-        row.setContentsMargins(0, 0, 0, 0)
+        column = QVBoxLayout(container)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(6)
 
+        # 上半行写分值和删除，下半行整行放表格路径，这样路径不会被挤成几个字
+        top = QHBoxLayout()
+        top.setSpacing(8)
         label = QLabel("发分名单")
-        label.setFixedWidth(ROW_INDENT)
-        entry = QLineEdit(path)
-        browse = QPushButton("浏览...")
-        browse.clicked.connect(lambda: self._pick_file(entry))
+        label.setFixedWidth(LABEL_WIDTH)
         spin = QDoubleSpinBox()
         spin.setDecimals(1)
         spin.setRange(0.1, 100.0)
         spin.setSingleStep(0.5)
         spin.setValue(points)
         spin.setSuffix(" 分")
-        spin.setFixedWidth(90)
+        spin.setFixedWidth(84)
         remove = QPushButton("删除")
-        remove.setFixedWidth(60)
+        remove.setObjectName("danger")
         remove.clicked.connect(lambda: self._remove_score_row(container))
+        top.addWidget(label)
+        top.addWidget(spin)
+        top.addWidget(remove)
+        top.addStretch()
 
-        row.addWidget(label)
-        row.addWidget(entry, 1)
-        row.addWidget(browse)
-        row.addWidget(spin)
-        row.addWidget(remove)
+        bottom = QHBoxLayout()
+        bottom.setSpacing(8)
+        entry = QLineEdit(path)
+        entry.setPlaceholderText("要发分的名单")
+        browse = QPushButton("浏览")
+        browse.setFixedWidth(56)
+        browse.clicked.connect(lambda: self._pick_file(entry))
+        bottom.addSpacing(LABEL_WIDTH)
+        bottom.addWidget(entry, 1)
+        bottom.addWidget(browse)
+
+        column.addLayout(top)
+        column.addLayout(bottom)
         self.score_rows_layout.addWidget(container)
         self.score_rows.append((container, entry, spin))
 
@@ -302,7 +442,7 @@ class MainWindow(QMainWindow):
             files = {points: Path(item) for item, points in (saved.get("file_dir") or [])}
             if not files:
                 raise ValueError("config.json 里没有名单路径")
-            title = read_activity_name(files[0])
+            activity = saved.get("activity_name") or read_activity_name(files[sorted(files)[0]])
         except Exception as err:
             QMessageBox.warning(self, "这个目录不能续跑", f"{run_dir}\n\n{err}")
             return
@@ -315,7 +455,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            problems = compare_resume(run_dir, files)
+            problems = compare_resume(run_dir, files, activity)
         except Exception as err:
             QMessageBox.warning(self, "这个目录不能续跑", f"{run_dir}\n\n{err}")
             return
@@ -329,11 +469,12 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         else:
-            self.log.appendPlainText(f"已核对 {run_dir.name}：名单与进度一致")
+            self._append_log(f"已核对 {run_dir.name}：名单与进度一致")
 
         spec = JobSpec(
-            title=f"{title}（续跑）",
+            title=f"{activity}（续跑）",
             files=files,
+            activity=activity,
             device=self.entry_device.text().strip() or None,
             init_device=False,
             additional=None,
@@ -350,7 +491,11 @@ class MainWindow(QMainWindow):
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(spec.title))
         self.table.setItem(row, 1, QTableWidgetItem(self._points_text(spec)))
-        self.table.setItem(row, 2, QTableWidgetItem("等待中"))
+        status = QTableWidgetItem("等待中")
+        status.setForeground(QColor(theme.MUTED))
+        self.table.setItem(row, 2, status)
+        self.table.setRowHeight(row, 30)
+        self.queue_hint.setVisible(False)
 
     @staticmethod
     def _points_text(spec: JobSpec) -> str:
@@ -365,6 +510,7 @@ class MainWindow(QMainWindow):
             return
         self.table.removeRow(row)
         del self.jobs[row]
+        self.queue_hint.setVisible(not self.jobs)
 
     def _move_job(self, delta: int) -> None:
         row = self.table.currentRow()
@@ -383,12 +529,17 @@ class MainWindow(QMainWindow):
     def _clear_queue(self) -> None:
         self.table.setRowCount(0)
         self.jobs.clear()
+        self.queue_hint.setVisible(True)
 
     def _collect_spec(self) -> JobSpec:
-        roster = self.entry_zero.text().strip()
-        if not roster:
-            raise ValueError("请先选择录取名单")
-        files: dict[float, Path] = {0.0: Path(roster)}
+        activity = self.entry_activity.text().strip()
+        if not activity:
+            raise ValueError("请先填活动名称（App 里那个完整名称）")
+
+        files: dict[float, Path] = {}
+        roster = self.entry_roster.text().strip()
+        if roster:
+            files[0.0] = Path(roster)
 
         for _, entry, spin in self.score_rows:
             text = entry.text().strip()
@@ -399,12 +550,13 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"{points:.1f} 分出现了两份名单，请合并成一份，或用「额外名单」单独指定")
             files[points] = Path(text)
 
-        if len(files) == 1 and not self.entry_extra.text().strip():
+        if not files and not self.entry_extra.text().strip():
             raise ValueError("至少要选一份发分名单，或用「额外名单」直接写学号和分值")
 
         return JobSpec(
-            title=read_activity_name(files[0]),
+            title=activity,
             files=files,
+            activity=activity,
             device=self.entry_device.text().strip() or None,
             init_device=self.check_init.isChecked(),
             additional=Path(self.entry_extra.text().strip()) if self.entry_extra.text().strip() else None,
@@ -414,7 +566,7 @@ class MainWindow(QMainWindow):
 
     def _start_queue(self) -> None:
         if not self.jobs:
-            QMessageBox.warning(self, "还没有任务", "先用上面的表单填一个活动，点「加入队列」。")
+            QMessageBox.warning(self, "还没有任务", "先在左边填好活动名称和名单，点「加入队列」。")
             return
 
         # 设备设置是全局的，开跑前统一套到还没跑过的任务上
@@ -425,12 +577,12 @@ class MainWindow(QMainWindow):
             if job.run_dir is None:
                 job.init_device = init_device
 
-        self.log.clear()
+        self._clear_log()
         self._reset_progress()
         self._set_state("running")
 
         self._worker = QueueWorker(self.jobs, self._base)
-        self._worker.log_line.connect(self.log.appendPlainText)
+        self._worker.log_line.connect(self._append_log)
         self._worker.total_changed.connect(self._on_total)
         self._worker.point_started.connect(self._on_point)
         self._worker.student_changed.connect(self._on_student)
@@ -463,6 +615,32 @@ class MainWindow(QMainWindow):
         if self._out_dir is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._out_dir)))
 
+    # ---- 日志 ----
+
+    def _append_log(self, text: str) -> None:
+        color = theme.TEXT
+        if any(word in text for word in ("❌", "失败", "错误", "异常", "ERROR")):
+            color = theme.ERROR
+        elif any(word in text for word in ("✅", "成功")):
+            color = theme.SUCCESS
+        elif any(word in text for word in ("⚠", "警告", "WARNING")):
+            color = theme.WARNING
+
+        cursor = self.log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        cursor.insertText(text + "\n", fmt)
+        self.log.setTextCursor(cursor)
+        self.log.ensureCursorVisible()
+
+    def _clear_log(self) -> None:
+        self.log.clear()
+
+    def _toggle_log(self, checked: bool) -> None:
+        self.btn_log_toggle.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+        self.log.setVisible(checked)
+
     # ---- 后台线程的信号 ----
 
     def _reset_progress(self) -> None:
@@ -476,12 +654,13 @@ class MainWindow(QMainWindow):
         job = self.jobs[index]
         self._reset_progress()
         self.label_state.setText(f"第 {index + 1}/{len(self.jobs)} 条：{job.title}")
-        self.log.appendPlainText(f"———— 第 {index + 1} 条：{job.title} ————")
+        self._append_log(f"———— 第 {index + 1} 条：{job.title} ————")
 
     def _on_job_status(self, index: int, text: str) -> None:
         item = self.table.item(index, 2)
         if item is not None:
             item.setText(text)
+            item.setForeground(QColor(STATUS_COLORS.get(text, theme.TEXT)))
 
     def _on_total(self, total: int) -> None:
         self.bar_total.setMaximum(max(total, 1))
@@ -551,6 +730,7 @@ class MainWindow(QMainWindow):
             self._out_dir = Path(out_dir)
             self.btn_open.setEnabled(True)
         if not ok:
+            self._append_log(f"❌ {self.jobs[index].title}：{message}")
             QMessageBox.warning(
                 self,
                 "这一条失败了",
@@ -590,6 +770,11 @@ class MainWindow(QMainWindow):
         self.btn_skip.setEnabled(paused)
         self.check_init.setEnabled(idle)
         self.entry_device.setReadOnly(running or paused)
+
+        self.chip.setText({"idle": "空闲", "running": "正在发分", "paused": "已暂停"}[state])
+        self.chip.setProperty("state", state)
+        self.chip.style().unpolish(self.chip)
+        self.chip.style().polish(self.chip)
 
     # ---- 关窗 ----
 

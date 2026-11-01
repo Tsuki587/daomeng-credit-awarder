@@ -100,7 +100,7 @@ def run_session(config: AutomationConfig, logger: logging.Logger, hooks: BatchHo
             hooks.on_prepare(controller, file_manager)
             if file_manager.check_database_initialized():
                 logger.info("检测到已有学生数据库，跳过Excel读取步骤")
-                for problem in compare_resume(config.output_dir, config.file_dir):
+                for problem in compare_resume(config.output_dir, config.file_dir, config.activity_name):
                     logger.warning(f"名单和进度对不上：{problem}")
                 counts = file_manager.merge_student_lists()
                 if counts["added"] or counts["revived"]:

@@ -19,6 +19,7 @@ class JobSpec:
 
     title: str
     files: dict[float, Path]
+    activity: str
     device: Optional[str]
     init_device: bool
     additional: Optional[Path]
@@ -131,7 +132,9 @@ class SessionRunner(QObject, BatchHooks):
             files = spec.files
             output_dir = None
 
-        activity_name = read_activity_name(files[0])
+        activity_name = saved.get("activity_name") or spec.activity
+        if not activity_name and 0.0 in files:
+            activity_name = read_activity_name(files[0.0])
         if output_dir is None:
             output_dir = new_output_dir(self._base, activity_name)
 

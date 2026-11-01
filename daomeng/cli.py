@@ -28,6 +28,7 @@ class CLIOptions:
     accounts: Optional[dict[str, str]]
     yiban_mapping: Optional[Path]
     click_other_tab: bool
+    activity: Optional[str]
     
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -38,6 +39,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-d", help="无线调试 IP:端口，不传入则尝试有线连接。", metavar='IP:PORT')
     parser.add_argument("-p", help="无线调试配对 IP:端口 配对码。", metavar=("IP:PORT", "CODE"), nargs=2)
     parser.add_argument("-a", help="额外添加名单。", type=Path, metavar='PATH')
+    parser.add_argument(
+        "--activity",
+        help="活动名称；不给则从录取名单里读。",
+        metavar='名称'
+    )
     parser.add_argument(
         "-cl",
         default="WARNING",
@@ -100,6 +106,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
     accounts: Optional[dict[str, str]] = None
     yiban_mapping: Optional[Path] = None
     click_other_tab: bool = args.click_other_tab
+    activity: Optional[str] = args.activity
     
     if args.f is None and args.r is None:
         raise ValueError("必须指定 -r 或 -f 参数。")
@@ -121,6 +128,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         
         # 恢复模式下只允许修改设备连接参数和账号信息
         device = args.d if args.d else recovered_config.get("device", "")
+        activity = args.activity or recovered_config.get("activity_name")
         additional_list = recovered_config.get("additional_list")
         file_dir = recovered_config.get("file_dir", [])
         click_other_tab = recovered_config.get("click_other_tab", False)
@@ -152,8 +160,8 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
             raise ValueError(f"检测到重复的分值: {pts}")
         file_dir_c[pts] = p
         
-    if file_dir_c.get(0) is None:
-        raise ValueError("必须指定分值为 0 的录取名单文件。")
+    if not file_dir_c:
+        raise ValueError("必须指定至少一份名单文件。")
     
     # 处理账号信息：新传入的覆盖恢复的（恢复模式和新任务模式都支持）
     if args.u:
@@ -189,6 +197,7 @@ def _parse_args(argv: Optional[list[str]] = None) -> CLIOptions:
         accounts = accounts if accounts else None,
         yiban_mapping = yiban_mapping if yiban_mapping else None,
         click_other_tab = click_other_tab,
+        activity = activity,
     )
 
 
@@ -202,7 +211,17 @@ def run_cli(argv: Optional[list[str]] = None) -> int:
         print(f"[bold red]命令行参数解析失败:[/bold red] {e}")
         return 1
     
-    activity_name = read_activity_name(options.file_dir.get(0))
+    activity_name = options.activity
+    if not activity_name:
+        roster = options.file_dir.get(0.0)
+        if roster is None:
+            print("[bold red]没有活动名称：请用 --activity 指定，或补一份分值为 0 的录取名单。[/bold red]")
+            return 1
+        try:
+            activity_name = read_activity_name(roster)
+        except ValueError as err:
+            print(f"[bold red]{err}：请用 --activity 指定活动名称。[/bold red]")
+            return 1
     base_dir = Path(sys.argv[0]).resolve().parent
     if options.recovered is None:
         print(f"[bold yellow]活动名称:[/bold yellow] [bold green]{activity_name}[/bold green]")

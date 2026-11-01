@@ -42,6 +42,7 @@ def save_config(config: AutomationConfig, output_dir: Path) -> None:
             "accounts": config.accounts if config.accounts else None,
             "yiban_mapping": str(config.yiban_mapping) if config.yiban_mapping else None,
             "click_other_tab": config.click_other_tab,
+            "activity_name": config.activity_name,
         }, f, ensure_ascii=False, indent=4)
 
 
@@ -53,6 +54,7 @@ def load_config(config_path: Path) -> dict:
     data["accounts"] = data.get("accounts") if data.get("accounts") else None
     data["yiban_mapping"] = Path(data["yiban_mapping"]) if data.get("yiban_mapping") else None
     data["click_other_tab"] = bool(data.get("click_other_tab", False))
+    data["activity_name"] = data.get("activity_name")
     return data
 
 
@@ -105,7 +107,7 @@ def _sample(items: List[str], limit: int = 8) -> str:
     return shown if len(items) <= limit else f"{shown} 等 {len(items)} 人"
 
 
-def compare_resume(run_dir: Path, files: Dict[float, Path]) -> List[str]:
+def compare_resume(run_dir: Path, files: Dict[float, Path], activity_name: str = "") -> List[str]:
     """续跑前核对名单与进度，返回差异说明；空列表表示一致。"""
     problems: List[str] = []
     saved: Dict[float, Dict[str, str]] = {}
@@ -152,8 +154,13 @@ def compare_resume(run_dir: Path, files: Dict[float, Path]) -> List[str]:
             problems.append(f"{points:g} 分：进度库里还有 {count} 人没发，这次没有对应的名单，他们会被跳过")
 
     expected = re.sub(r"-\d{8}-\d{6}$", "", run_dir.name)
-    actual = read_activity_name(files[sorted(files)[0]])
-    if _plain(actual) != _plain(expected):
+    actual = activity_name
+    if not actual:
+        try:
+            actual = read_activity_name(files[sorted(files)[0]])
+        except ValueError:
+            actual = ""
+    if actual and _plain(actual) != _plain(expected):
         problems.append(f"活动名对不上：目录是「{expected}」，录取名单里是「{actual}」")
     return problems
 

@@ -318,7 +318,8 @@ class FileManager:
             return None
         self._logger.debug(f"开始读取附加名单文件: {self._config.additional_list}")
         try:
-            df = read_excel(self._config.additional_list, dtype=str, usecols=lambda col: col in {"学号", "姓名", "分值"})
+            df = read_excel(self._config.additional_list, dtype=str)
+            clean_columns(df)
             if not {"学号", "姓名", "分值"}.issubset(df.columns):
                 self._logger.error(f"附加名单文件 {self._config.additional_list} 缺少必要列")
                 raise ValueError(f"附加名单文件 {self._config.additional_list} 缺少必要列，必须包含: 学号, 姓名, 分值")
@@ -703,12 +704,13 @@ class FileManager:
         dataframes = dataframes or self._read_student_list()
         additional_df = additional_df or self._read_additional_list()
         
-        # 获取录取名单（分值为0）
+        # 获取录取名单（分值为0），没有就按「名单里的人全发」处理
         enrollment_df = dataframes.get(0.0)
-        if enrollment_df is None or enrollment_df.empty:
-            self._logger.error("未找到录取名单（分值为0），无法进行验证")
-            raise ValueError("缺少录取名单")
-        self._logger.info(f"录取名单共有 {len(enrollment_df)} 条记录")
+        has_roster = enrollment_df is not None and not enrollment_df.empty
+        if has_roster:
+            self._logger.info(f"录取名单共有 {len(enrollment_df)} 条记录")
+        else:
+            self._logger.info("没有录取名单，名单里的人按学号直接发放")
         
         # 准备收集所有处理后的记录
         all_processed_records = []
@@ -741,7 +743,7 @@ class FileManager:
                             'points': points,
                             'row_data': row.to_dict()
                         })
-                    else:
+                    elif has_roster:
                         # 学号无效，尝试通过姓名匹配
                         matched = self._find_students_by_name(name, enrollment_df)
                         invalid_records.append({
@@ -752,12 +754,19 @@ class FileManager:
                             'score_info': row.to_dict(),
                             'record_key': idx
                         })
+                    else:
+                        rejected_invalid_records.append({
+                            'student_id': str(raw_id),
+                            'name': name,
+                            'points': points,
+                            'status': '学号错误（非11位有效学号）'
+                        })
                     progress.update(task, advance=1)
             
             self._logger.info(f"{points} 分名单学号提取完成: 有效 {len(valid_records)} 条，无效 {len(invalid_records)} 条")
             
             # 处理无效学号
-            id_mapping = self._handle_invalid_ids(invalid_records, enrollment_df)
+            id_mapping = self._handle_invalid_ids(invalid_records, enrollment_df) if invalid_records else {}
             self._logger.info(f"无效学号处理完成: 共映射 {len(id_mapping)} 条记录")
             
             # 应用学号映射
@@ -789,40 +798,42 @@ class FileManager:
             confirmed_records = []
             rejected_mismatch_records = []  # 保存被拒绝的姓名不匹配记录
             
-            with progress_() as progress:
-                task = progress.add_task("验证姓名匹配...", total=len(valid_records))
-                for record in valid_records:
-                    student_id = record['student_id']
-                    score_name = record['name']
-                    
-                    # 在录取名单中查找该学号
-                    enrollment_match = enrollment_df[enrollment_df['学号'] == student_id]
-                    
-                    if not enrollment_match.empty:
-                        enrollment_name = enrollment_match['姓名'].iloc[0]
-                        
-                        if str(score_name).strip() != str(enrollment_name).strip():
-                            # 姓名不匹配
-                            mismatch_records.append({
-                                '学号': student_id,
-                                '发分表姓名': score_name,
-                                '录取表姓名': enrollment_name,
-                                'points': record['points'],
-                                'record': record
-                            })
+            if not has_roster:
+                confirmed_records = list(valid_records)
+                self._logger.info(f"{points} 分名单共 {len(valid_records)} 条，没有录取名单可比对姓名，直接发放")
+            else:
+                with progress_() as progress:
+                    task = progress.add_task("验证姓名匹配...", total=len(valid_records))
+                    for record in valid_records:
+                        student_id = record['student_id']
+                        score_name = record['name']
+
+                        # 在录取名单中查找该学号
+                        enrollment_match = enrollment_df[enrollment_df['学号'] == student_id]
+
+                        if not enrollment_match.empty:
+                            enrollment_name = enrollment_match['姓名'].iloc[0]
+
+                            if str(score_name).strip() != str(enrollment_name).strip():
+                                mismatch_records.append({
+                                    '学号': student_id,
+                                    '发分表姓名': score_name,
+                                    '录取表姓名': enrollment_name,
+                                    'points': record['points'],
+                                    'record': record
+                                })
+                            else:
+                                confirmed_records.append(record)
                         else:
-                            # 姓名匹配
-                            confirmed_records.append(record)
-                    else:
-                        # 录取名单中找不到该学号，直接标记为"未报名"，不进入姓名匹配流程
-                        rejected_mismatch_records.append({
-                            'student_id': student_id,
-                            'name': score_name,
-                            'points': record['points'],
-                            'status': '未报名（或学号错误）'
-                        })
-                    progress.update(task, advance=1)
-            
+                            # 录取名单中找不到该学号，直接标记为"未报名"，不进入姓名匹配流程
+                            rejected_mismatch_records.append({
+                                'student_id': student_id,
+                                'name': score_name,
+                                'points': record['points'],
+                                'status': '未报名（或学号错误）'
+                            })
+                        progress.update(task, advance=1)
+
             self._logger.info(f"{points} 分名单姓名验证完成: 匹配 {len(confirmed_records)} 条，不匹配 {len(mismatch_records)} 条，未报名 {len(rejected_mismatch_records)} 条")
             
             # 处理姓名不匹配
@@ -919,10 +930,10 @@ class FileManager:
                         '状态': '学号错误'
                     })
                 else:
-                    # 检查学号是否在录取名单中
-                    enrollment_match = enrollment_df[enrollment_df['学号'] == student_id]
-                    
-                    if enrollment_match.empty:
+                    # 检查学号是否在录取名单中；没有录取名单时都算有资格
+                    enrollment_match = enrollment_df[enrollment_df['学号'] == student_id] if has_roster else None
+
+                    if enrollment_match is not None and enrollment_match.empty:
                         # 不在录取名单中，标记为"未报名"
                         self._logger.warning(f"额外名单中学号未报名: {student_id} (姓名: {name})")
                         additional_not_enrolled += 1
@@ -1133,12 +1144,19 @@ class FileManager:
         """
         dataframes = self._read_student_list()
         enrollment = dataframes.get(0.0)
-        if enrollment is None or enrollment.empty:
-            raise ValueError("缺少录取名单")
-        roster = {
-            str(student_id).strip(): str(name).strip()
-            for student_id, name in zip(enrollment["学号"], enrollment["姓名"])
-        }
+        if enrollment is not None and not enrollment.empty:
+            roster = {
+                str(student_id).strip(): str(name).strip()
+                for student_id, name in zip(enrollment["学号"], enrollment["姓名"])
+            }
+        else:
+            # 没有录取名单时，名单里的人全算有资格
+            roster = {
+                str(student_id).strip(): str(name).strip()
+                for points, frame in dataframes.items()
+                if points > 0
+                for student_id, name in zip(frame["学号"], frame["姓名"])
+            }
 
         cursor = self._conn.cursor()
         rows = cursor.execute("SELECT student_id, points, status, name FROM students")

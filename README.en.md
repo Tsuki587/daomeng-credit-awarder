@@ -55,14 +55,16 @@ On another distribution, use its package manager or Google's Platform-Tools. If 
 
 ## 2. Excel input
 
-You need an enrollment workbook and at least one award workbook, all in `.xlsx` format:
+Award workbooks are required; the enrollment workbook is optional. All are `.xlsx`:
 
 | File | Required columns | Purpose |
 | --- | --- | --- |
-| Enrollment list | `活动名称`, `学号`, `姓名` | Validation reference; use score `0` in the command, which does **not** award zero credits |
 | Each award list | `学号`, `姓名` | One student per row; supply that list's actual score in the command |
+| Enrollment list (optional) | `活动名称`, `学号`, `姓名` | Validation reference; use score `0` in the command, which does **not** award zero credits. With it, anyone missing from the enrollment list is marked "not enrolled" and skipped |
 
-The enrollment workbook needs at least two data rows. The program takes the activity name from the **second data row** of `活动名称`; it uses that value to find the activity in the app and name the output directory. Other rows need not repeat the activity name. Keep student IDs as 11-digit text where possible. A stray leading backtick is removed when reading the ID. Review names, IDs, scores, and the activity name before running.
+Type the activity name in the GUI, or pass `--activity` on the command line; no enrollment workbook is needed just to name the activity. The name must match what the app shows, since it is used to find the activity and name the output directory.
+
+If you do supply an enrollment workbook without `--activity`, the program takes the activity name from the **second data row** of `活动名称` (merged cells often look like that). Keep student IDs as 11-digit text where possible. A stray leading backtick is removed when reading the ID. Review names, IDs, scores, and the activity name before running.
 
 ## 3. Award credits
 
@@ -72,21 +74,21 @@ Windows PowerShell:
 
 ```powershell
 cd C:\path\to\daomeng
-.\run-windows.cmd -f "C:\Lists\录取名单.xlsx" 0 -f "C:\Lists\1分.xlsx" 1 -f "C:\Lists\2分.xlsx" 2 -i
+.\run-windows.cmd --activity "Full activity name" -f "C:\Lists\1分.xlsx" 1 -f "C:\Lists\2分.xlsx" 2 -i
 ```
 
 macOS:
 
 ```bash
 cd "/absolute/path/daomeng"
-bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
+bash run-linux.sh --activity "Full activity name" -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
 ```
 
 Linux:
 
 ```bash
 cd "/absolute/path/daomeng"
-bash run-linux.sh -f "/absolute/path/录取名单.xlsx" 0 -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
+bash run-linux.sh --activity "Full activity name" -f "/absolute/path/1分.xlsx" 1 -f "/absolute/path/2分.xlsx" 2 -i
 ```
 
 Scores are not limited to whole numbers: `-f "/absolute/path/list.xlsx" 2.5` awards 2.5 credits. Pass one `-f` pair per list; omit a pair to skip that score. Run the platform-specific `-h` command for wireless debugging, device selection, and other options. Follow any login or confirmation prompt on the phone or in the terminal.
@@ -107,7 +109,7 @@ If you would rather not type the command line, the GUI runs exactly the same awa
 ./.venv/bin/python DM-gui.py
 ```
 
-It can start a new task (pick the roster, add as many award lists as you need and type each list's score, tick initialization on first connect) and add it to a queue; an unfinished run directory can be queued with "Resume previous task...", which continues from the saved progress without awarding anything twice; press "Start queue" and it works through the activities top to bottom without supervision; use "Move up" / "Move down" to reorder. A failed task pauses the queue: after sorting out the phone, use "Retry this" to continue that task from its own run directory (nothing is awarded twice) or "Skip this" to move on. "Stop" halts the whole queue once the current student is done, keeping all progress. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
+It can start a new task (type the activity name, add as many award lists as you need and type each list's score, optionally pick an enrollment list, tick initialization on first connect) and add it to a queue; an unfinished run directory can be queued with "Resume previous task...", which continues from the saved progress without awarding anything twice; press "Start queue" and it works through the activities top to bottom without supervision; use "Move up" / "Move down" to reorder. A failed task pauses the queue: after sorting out the phone, use "Retry this" to continue that task from its own run directory (nothing is awarded twice) or "Skip this" to move on. "Stop" halts the whole queue once the current student is done, keeping all progress. When the phone needs you (signed out, reconnect required), it shows a dialog and waits. On Linux, `./install-desktop.sh` adds a desktop and application-menu icon that opens the GUI in one click.
 
 On Windows, `build-windows.cmd` packages a portable folder in `dist\daomeng-gui` (build on Windows; PyInstaller cannot cross-compile). Put `adb.exe` in `vendor\platform-tools\` to bundle it, otherwise the target computer needs its own `platform-tools`.
 
